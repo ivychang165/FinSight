@@ -245,8 +245,13 @@ class MOPSFetcher:
             results['_warnings'] = errors
 
         report_label = '合併報表' if self._report_type_used == 'consolidated' else '個別報表'
+
+        # 自動取得公司名稱（不阻斷流程）
+        company_name = self.get_company_name(company_id)
+
         results['_meta'] = {
             'company_id': company_id,
+            'company_name': company_name,
             'year': year,
             'season': season,
             'source': 'MOPS XBRL',
@@ -256,13 +261,82 @@ class MOPSFetcher:
 
         return results
 
+    # ── TWSE 即時搜尋 API ──────────────────────────────────────────
+
+    @staticmethod
+    def _query_twse_api(keyword: str) -> list:
+        """
+        查詢 TWSE 即時代碼搜尋 API。
+        僅保留 4 位數字的正股代碼（過濾掉權證、ETF 等）。
+        """
+        try:
+            url = "https://www.twse.com.tw/rwd/zh/api/codeQuery"
+            resp = requests.get(url, params={"query": keyword}, timeout=5)
+            data = resp.json()
+            suggestions = data.get("suggestions", [])
+            results = []
+            for s in suggestions:
+                if s == "(無符合之代碼或名稱)":
+                    continue
+                parts = s.split("\t")
+                if len(parts) < 2:
+                    continue
+                code = parts[0].strip()
+                name = parts[1].strip()
+                # 只保留 4 位數字的正股代碼（權證為 6 位數，ETF代碼另計）
+                # 4 位純數字 = 一般上市櫃公司正股
+                if re.fullmatch(r'\d{4}', code):
+                    results.append({'code': code, 'name': name})
+            return results
+        except Exception:
+            return []
+
     def search_company(self, keyword: str) -> list:
-        """搜尋公司（支援代號或名稱），委派給 company_data 模組"""
+        """
+        搜尋公司（支援代號或名稱）。
+        策略：本地資料庫（即時）＋ TWSE 官方 API（完整）合併去重。
+        """
         from modules.company_data import search_companies
-        return search_companies(keyword)
+        keyword = keyword.strip()
+        if not keyword:
+            return []
+
+        # 先查本地資料庫（快速）
+        local = search_companies(keyword)
+        local_codes = {m['code'] for m in local}
+
+        # 再查 TWSE API（完整，但需網路）
+        api_results = self._query_twse_api(keyword)
+
+        # 合併：本地優先，API 補充
+        combined = list(local)
+        for item in api_results:
+            if item['code'] not in local_codes:
+                combined.append(item)
+                local_codes.add(item['code'])
+
+        return combined[:20]
 
     @staticmethod
     def get_company_name(company_id: str) -> str:
-        """根據代號取得公司名稱"""
+        """
+        根據代號取得公司名稱。
+        先查本地 DB，若找不到則查 TWSE API。
+        """
         from modules.company_data import get_company_name
-        return get_company_name(company_id)
+        local_name = get_company_name(company_id)
+        if local_name:
+            return local_name
+
+        # 查 TWSE API
+        try:
+            url = "https://www.twse.com.tw/rwd/zh/api/codeQuery"
+            resp = requests.get(url, params={"query": company_id}, timeout=5)
+            data = resp.json()
+            for s in data.get("suggestions", []):
+                parts = s.split("\t")
+                if len(parts) >= 2 and parts[0].strip() == company_id:
+                    return parts[1].strip()
+        except Exception:
+            pass
+        return ''

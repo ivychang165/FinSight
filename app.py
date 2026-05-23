@@ -4,6 +4,7 @@ FinSight — 智慧化財務報表翻譯與分析平台
 新手友善的財報翻譯器 + 財務健康 Dashboard
 """
 
+import re
 import streamlit as st
 import pandas as pd
 
@@ -202,6 +203,15 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ─── 快取搜尋（避免每次打字都呼叫 TWSE API）───
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_search(keyword: str) -> list:
+    """搜尋公司：本地資料庫 + TWSE 官方 API，結果快取 5 分鐘"""
+    _fetcher = MOPSFetcher()
+    return _fetcher.search_company(keyword)
+
+
 # ─── Header ───
 
 st.markdown('<div class="main-header">📊 FinSight</div>', unsafe_allow_html=True)
@@ -227,28 +237,27 @@ with st.sidebar:
     company_name = ""
 
     if search_query.strip():
-        matches = search_companies(search_query.strip())
+        matches = cached_search(search_query.strip())
 
         if len(matches) == 1:
             company_id = matches[0]['code']
             company_name = matches[0]['name']
             st.caption(f"✅ {company_id} {company_name}")
         elif len(matches) > 1:
-            options_list = [f"{m['code']}　{m['name']}" for m in matches]
+            # 用 dict 避免字串分割的脆弱性
+            option_map = {f"{m['code']}　{m['name']}": m for m in matches}
             selected = st.selectbox(
                 "搜尋結果（點選切換）",
-                options_list,
+                list(option_map.keys()),
             )
-            selected_code = selected.split("　")[0].strip()
-            selected_name = selected.split("　")[1].strip() if "　" in selected else ""
-            company_id = selected_code
-            company_name = selected_name
+            company_id = option_map[selected]['code']
+            company_name = option_map[selected]['name']
         else:
-            # 不在本地資料庫中，直接使用輸入值當代號
-            if search_query.strip().isdigit() and len(search_query.strip()) == 4:
+            # TWSE API 也找不到 → 直接當作代號輸入
+            if re.fullmatch(r'\d{4,6}', search_query.strip()):
                 company_id = search_query.strip()
                 company_name = ""
-                st.caption(f"🔍 將搜尋代號 {company_id}（不在常用清單中）")
+                st.caption(f"🔍 將直接搜尋代號 {company_id}")
             else:
                 st.warning("找不到符合的公司，請嘗試輸入 4 位數股票代號")
 
@@ -366,8 +375,11 @@ if analyze_btn:
     progress.progress(100, text="分析完成！")
     progress.empty()
 
-    # 如果本地沒有名稱，嘗試從 fetcher 取得
-    if not company_name:
+    # 公司名稱：優先用 API 取得的（已存在 meta），再用側邊欄搜尋結果
+    meta_name = statements.get('_meta', {}).get('company_name', '')
+    if meta_name:
+        company_name = meta_name
+    elif not company_name:
         company_name = get_company_name(company_id)
 
     # Store in session state
