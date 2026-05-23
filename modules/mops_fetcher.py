@@ -42,9 +42,16 @@ class MOPSFetcher:
         self._company_id = None
         self._year = None
         self._season = None
+        self._report_type_used = None  # 記錄實際使用的報表類型
 
-    def fetch_report_page(self, company_id: str, year: int, season: int,
-                          report_type: str = 'consolidated') -> BeautifulSoup:
+    @property
+    def report_type_used(self):
+        """回傳實際成功擷取的報表類型 ('consolidated' 或 'individual')"""
+        return self._report_type_used
+
+    def _try_fetch_page(self, company_id: str, year: int, season: int,
+                        report_type: str) -> str | None:
+        """嘗試擷取指定類型的報表頁面，回傳 HTML 內容或 None"""
         params = {
             'step': '1',
             'CO_ID': str(company_id),
@@ -55,20 +62,52 @@ class MOPSFetcher:
         try:
             resp = self.session.get(XBRL_BASE_URL, params=params, verify=False, timeout=30)
             resp.raise_for_status()
-        except requests.RequestException as e:
-            raise ConnectionError(f"無法連線至 MOPS XBRL 平台：{e}")
+        except requests.RequestException:
+            return None
 
-        # XBRL page declares charset=big5; try big5 first, fall back to utf-8
         try:
             content = resp.content.decode('big5', errors='replace')
         except (UnicodeDecodeError, LookupError):
             content = resp.content.decode('utf-8', errors='replace')
 
+        # 檢查是否有實際資料
         if '查無資料' in content or len(content) < 500:
-            raise ValueError(
-                f"查無 {company_id} 於 {year} 年第 {season} 季的財務報表。"
-                "請確認公司代號、年度及季度是否正確。"
-            )
+            return None
+
+        # 進一步檢查：確認頁面包含至少一個報表錨點
+        has_table = any(
+            anchor_id in content
+            for anchor_id in TABLE_ANCHORS.values()
+        )
+        if not has_table:
+            return None
+
+        return content
+
+    def fetch_report_page(self, company_id: str, year: int, season: int,
+                          report_type: str = 'consolidated') -> BeautifulSoup:
+        # 先嘗試使用者指定的報表類型
+        content = self._try_fetch_page(company_id, year, season, report_type)
+
+        if content is not None:
+            self._report_type_used = report_type
+        else:
+            # 自動嘗試另一種報表類型作為 fallback
+            fallback_type = 'individual' if report_type == 'consolidated' else 'consolidated'
+            content = self._try_fetch_page(company_id, year, season, fallback_type)
+
+            if content is not None:
+                self._report_type_used = fallback_type
+            else:
+                # 兩種都沒資料
+                raise ValueError(
+                    f"查無 {company_id} 於 {year} 年第 {season} 季的財務報表（合併報表與個別報表皆無資料）。\n\n"
+                    f"可能原因：\n"
+                    f"① 該公司未在 XBRL 平台申報此期報表\n"
+                    f"② 公司代號輸入錯誤\n"
+                    f"③ 該年度/季度尚未公告\n\n"
+                    f"建議：請至公開資訊觀測站(mops.twse.com.tw)確認該公司是否有公告此期報表。"
+                )
 
         self._soup = BeautifulSoup(content, 'html.parser')
         self._company_id = company_id
@@ -205,30 +244,25 @@ class MOPSFetcher:
         if errors:
             results['_warnings'] = errors
 
+        report_label = '合併報表' if self._report_type_used == 'consolidated' else '個別報表'
         results['_meta'] = {
             'company_id': company_id,
             'year': year,
             'season': season,
             'source': 'MOPS XBRL',
+            'report_type': self._report_type_used,
+            'report_label': report_label,
         }
 
         return results
 
     def search_company(self, keyword: str) -> list:
-        common_companies = {
-            '2330': '台積電', '2317': '鴻海', '2454': '聯發科',
-            '2303': '聯電', '2882': '國泰金', '2881': '富邦金',
-            '1301': '台塑', '1303': '南亞', '2002': '中鋼',
-            '2886': '兆豐金', '2891': '中信金', '3711': '日月光投控',
-            '2308': '台達電', '2412': '中華電', '1216': '統一',
-            '2603': '長榮', '2609': '陽明', '5880': '合庫金',
-            '2892': '第一金', '2884': '玉山金', '2357': '華碩',
-            '3008': '大立光', '2301': '光寶科', '6505': '台塑化',
-            '2207': '和泰車', '5871': '中租-KY', '2345': '智邦',
-            '3037': '欣興', '2379': '瑞昱', '4904': '遠傳',
-        }
-        results = []
-        for code, name in common_companies.items():
-            if keyword in code or keyword in name:
-                results.append({'code': code, 'name': name})
-        return results
+        """搜尋公司（支援代號或名稱），委派給 company_data 模組"""
+        from modules.company_data import search_companies
+        return search_companies(keyword)
+
+    @staticmethod
+    def get_company_name(company_id: str) -> str:
+        """根據代號取得公司名稱"""
+        from modules.company_data import get_company_name
+        return get_company_name(company_id)

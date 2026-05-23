@@ -16,6 +16,7 @@ from modules.narrative_generator import NarrativeGenerator
 from modules.dashboard_generator import DashboardGenerator
 from modules.report_generator import ReportGenerator
 from modules.glossary import GLOSSARY
+from modules.company_data import search_companies, get_company_name
 
 # ─── Page Config ───
 
@@ -30,6 +31,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* ─── Desktop Styles ─── */
     .main-header {
         font-size: 2.2rem;
         font-weight: 700;
@@ -109,6 +111,94 @@ st.markdown("""
         border-radius: 8px 8px 0 0;
         padding: 8px 20px;
     }
+    .company-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin-bottom: 0.5rem;
+    }
+    .company-subtitle {
+        font-size: 0.9rem;
+        color: #666;
+        margin-bottom: 1rem;
+    }
+
+    /* ─── Mobile Responsive ─── */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 1.5rem;
+        }
+        .sub-header {
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+        }
+        .metric-value {
+            font-size: 1.2rem;
+        }
+        .personality-badge {
+            font-size: 1.3rem;
+            padding: 0.8rem;
+        }
+        .personality-badge span {
+            font-size: 0.7rem !important;
+        }
+        .narrative-card {
+            padding: 0.7rem 0.9rem;
+            font-size: 0.9rem;
+        }
+        .risk-danger, .risk-warning, .risk-positive, .risk-info {
+            padding: 0.6rem 0.8rem;
+            font-size: 0.85rem;
+        }
+        .company-title {
+            font-size: 1.2rem;
+        }
+        .company-subtitle {
+            font-size: 0.8rem;
+        }
+
+        /* 讓欄位在手機上堆疊成單欄 */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 0 0 100% !important;
+            min-width: 100% !important;
+        }
+
+        /* Tab 標籤可水平捲動 */
+        .stTabs [data-baseweb="tab-list"] {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            flex-wrap: nowrap !important;
+            gap: 4px;
+            scrollbar-width: none;
+        }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+            display: none;
+        }
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.75rem;
+            padding: 6px 12px;
+            white-space: nowrap;
+        }
+
+        /* 縮小 Plotly 圖表高度 */
+        [data-testid="stPlotlyChart"] > div {
+            max-height: 320px;
+        }
+    }
+
+    /* ─── Tablet ─── */
+    @media (min-width: 769px) and (max-width: 1024px) {
+        .main-header {
+            font-size: 1.8rem;
+        }
+        .personality-badge {
+            font-size: 1.4rem;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -125,17 +215,42 @@ st.markdown(
 with st.sidebar:
     st.markdown("### 📋 查詢設定")
 
-    company_id = st.text_input(
-        "公司代號",
+    search_query = st.text_input(
+        "搜尋公司（代號或名稱）",
         value="2330",
-        help="輸入台灣上市櫃公司股票代號，例如 2330（台積電）、2317（鴻海）",
+        placeholder="例如：2330 或 台積電",
+        help="輸入股票代號或公司名稱的部分文字即可搜尋，例如「台積」、「鴻海」、「2330」",
     )
 
-    fetcher = MOPSFetcher()
-    if company_id:
-        results = fetcher.search_company(company_id)
-        if results:
-            st.caption(f"🔍 {results[0]['code']} {results[0]['name']}")
+    # 搜尋與選擇公司
+    company_id = search_query.strip()
+    company_name = ""
+
+    if search_query.strip():
+        matches = search_companies(search_query.strip())
+
+        if len(matches) == 1:
+            company_id = matches[0]['code']
+            company_name = matches[0]['name']
+            st.caption(f"✅ {company_id} {company_name}")
+        elif len(matches) > 1:
+            options_list = [f"{m['code']}　{m['name']}" for m in matches]
+            selected = st.selectbox(
+                "搜尋結果（點選切換）",
+                options_list,
+            )
+            selected_code = selected.split("　")[0].strip()
+            selected_name = selected.split("　")[1].strip() if "　" in selected else ""
+            company_id = selected_code
+            company_name = selected_name
+        else:
+            # 不在本地資料庫中，直接使用輸入值當代號
+            if search_query.strip().isdigit() and len(search_query.strip()) == 4:
+                company_id = search_query.strip()
+                company_name = ""
+                st.caption(f"🔍 將搜尋代號 {company_id}（不在常用清單中）")
+            else:
+                st.warning("找不到符合的公司，請嘗試輸入 4 位數股票代號")
 
     col_y, col_s = st.columns(2)
     with col_y:
@@ -175,9 +290,30 @@ if analyze_btn:
         try:
             fetcher = MOPSFetcher()
             statements = fetcher.fetch_all_statements(company_id, year, season)
-        except (ConnectionError, ValueError) as e:
-            st.error(f"❌ 擷取失敗：{e}")
+        except ConnectionError as e:
+            st.error(f"🌐 網路連線失敗：{e}")
+            st.info("請檢查網路連線後重試，或稍後再試。")
             st.stop()
+        except ValueError as e:
+            st.error(f"📭 查無資料")
+            st.markdown(str(e))
+            st.info(
+                "💡 **小提示**：部分公司（如金控子公司、興櫃公司、KY 公司等）"
+                "可能未在 XBRL 平台提供報表。\n\n"
+                "您可以嘗試搜尋其他公司代號，例如：2330（台積電）、2317（鴻海）、2454（聯發科）。"
+            )
+            st.stop()
+        except Exception as e:
+            st.error(f"❌ 發生未預期的錯誤：{e}")
+            st.stop()
+
+    # 如果使用了個別報表（fallback），顯示提醒
+    meta = statements.get('_meta', {})
+    if meta.get('report_type') == 'individual':
+        st.warning(
+            "⚠️ 此公司無合併報表資料，已自動改用**個別報表**進行分析。"
+            "個別報表僅涵蓋母公司，不含子公司資料，分析結果可能與合併報表有差異。"
+        )
 
     progress = st.progress(0, text="解析財務科目...")
 
@@ -230,6 +366,10 @@ if analyze_btn:
     progress.progress(100, text="分析完成！")
     progress.empty()
 
+    # 如果本地沒有名稱，嘗試從 fetcher 取得
+    if not company_name:
+        company_name = get_company_name(company_id)
+
     # Store in session state
     st.session_state['analysis_done'] = True
     st.session_state['report'] = report
@@ -242,6 +382,7 @@ if analyze_btn:
     st.session_state['balance_check'] = balance_check
     st.session_state['completeness'] = completeness
     st.session_state['company_id'] = company_id
+    st.session_state['company_name'] = company_name
     st.session_state['year'] = year
     st.session_state['season'] = season
     st.session_state['statements'] = statements
@@ -259,6 +400,7 @@ if st.session_state.get('analysis_done'):
     balance_check = st.session_state['balance_check']
     completeness = st.session_state['completeness']
     cid = st.session_state['company_id']
+    cname = st.session_state.get('company_name', '')
     yr = st.session_state['year']
     ssn = st.session_state['season']
 
@@ -274,7 +416,14 @@ if st.session_state.get('analysis_done'):
         st.warning(f"⚠️ 缺少關鍵欄位：{', '.join(completeness['missing_critical'])}")
 
     # ── Top Summary Row ──
-    st.markdown(f"### {cid} — {yr} 年 Q{ssn} 財務分析")
+    statements_meta = st.session_state.get('statements', {}).get('_meta', {})
+    report_label = statements_meta.get('report_label', '合併報表')
+    display_name = f"{cid} {cname}" if cname else cid
+    st.markdown(
+        f'<div class="company-title">{display_name}</div>'
+        f'<div class="company-subtitle">{yr} 年 Q{ssn} 財務分析 ｜ {report_label}</div>',
+        unsafe_allow_html=True,
+    )
 
     top_col1, top_col2, top_col3 = st.columns([1, 1, 1])
 
@@ -452,10 +601,11 @@ if st.session_state.get('analysis_done'):
             cid, yr, ssn, ratios, health, personality, narratives, alerts
         )
         excel_bytes = gen.generate_excel()
+        file_label = f"{cid}_{cname}" if cname else cid
         st.download_button(
             label="📥 下載 Excel 報告",
             data=excel_bytes,
-            file_name=f"FinSight_{cid}_{yr}Q{ssn}_報告.xlsx",
+            file_name=f"FinSight_{file_label}_{yr}Q{ssn}_報告.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
         )
