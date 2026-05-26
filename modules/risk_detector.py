@@ -10,6 +10,8 @@ RISK_RULES = {
              'message': '毛利率為負，公司每賣出一件商品都在虧錢，營運模式可能有根本性問題。'},
             {'condition': lambda v: v is not None and 0 <= v < 0.10, 'level': 'warning',
              'message': '毛利率偏低（< 10%），代表成本控制或定價能力有待加強。'},
+          # {'condition': lambda v: v is not None and 0.10 <= v < 0.40, 'level': 'medium',
+          # 'message': '毛利率偏低（< 10%），代表成本控制或定價能力有待加強。'},
             {'condition': lambda v: v is not None and v >= 0.40, 'level': 'positive',
              'message': '毛利率優異（≥ 40%），公司具有良好的定價能力或成本優勢。'},
         ],
