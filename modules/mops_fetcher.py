@@ -46,7 +46,6 @@ class MOPSFetcher:
         self._year = None
         self._season = None
         self._report_type_used = None  # 記錄實際使用的報表類型
-        self._debug_info = []  # 暫時用於診斷 Streamlit Cloud 問題
 
     @property
     def report_type_used(self):
@@ -67,13 +66,11 @@ class MOPSFetcher:
             resp = self.session.get(XBRL_BASE_URL, params=params, verify=False, timeout=30)
             resp.raise_for_status()
         except requests.RequestException as e:
-            self._debug_info.append(f"[{report_type}] request failed: {e}")
+            logger.warning("MOPS request failed [%s]: %s", report_type, e)
             return None
 
-        self._debug_info.append(
-            f"[{report_type}] status={resp.status_code}, "
-            f"bytes={len(resp.content)}, encoding={resp.encoding}"
-        )
+        logger.info("MOPS response [%s]: status=%s, bytes=%d",
+                     report_type, resp.status_code, len(resp.content))
 
         try:
             content = resp.content.decode('big5', errors='replace')
@@ -82,24 +79,16 @@ class MOPSFetcher:
 
         # 檢查是否有實際資料
         if '查無資料' in content or len(content) < 500:
-            self._debug_info.append(
-                f"[{report_type}] rejected: has_查無資料={'查無資料' in content}, len={len(content)}"
-            )
+            logger.info("MOPS no data [%s]: len=%d", report_type, len(content))
             return None
 
         # 進一步檢查：新格式有錨點 ID，舊格式（2013-2018）有「會計項目」表格
         has_new_format = any(anchor_id in content for anchor_id in TABLE_ANCHORS.values())
         has_old_format = '會計項目' in content
         if not has_new_format and not has_old_format:
-            self._debug_info.append(
-                f"[{report_type}] format not recognized: new={has_new_format}, "
-                f"old={has_old_format}, len={len(content)}, first_200={repr(content[:200])}"
-            )
+            logger.warning("MOPS format not recognized [%s]: len=%d", report_type, len(content))
             return None
 
-        self._debug_info.append(
-            f"[{report_type}] OK: new={has_new_format}, old={has_old_format}, len={len(content)}"
-        )
         return content
 
     def fetch_report_page(self, company_id: str, year: int, season: int,
@@ -118,15 +107,13 @@ class MOPSFetcher:
                 self._report_type_used = fallback_type
             else:
                 # 兩種都沒資料
-                debug_str = '\n'.join(self._debug_info) if self._debug_info else '(no debug info)'
                 raise ValueError(
                     f"查無 {company_id} 於 {year} 年第 {season} 季的財務報表（合併報表與個別報表皆無資料）。\n\n"
                     f"可能原因：\n"
                     f"① 該公司未在 XBRL 平台申報此期報表\n"
                     f"② 公司代號輸入錯誤\n"
                     f"③ 該年度/季度尚未公告\n\n"
-                    f"建議：請至公開資訊觀測站(mops.twse.com.tw)確認該公司是否有公告此期報表。\n\n"
-                    f"[DEBUG] {debug_str}"
+                    f"建議：請至公開資訊觀測站(mops.twse.com.tw)確認該公司是否有公告此期報表。"
                 )
 
         self._soup = BeautifulSoup(content, 'html.parser')
