@@ -604,7 +604,7 @@ if st.session_state.get('analysis_done'):
 
     # ── Report Download ──
     st.markdown("---")
-    st.markdown("### 📥 下載分析報告")
+    st.subheader("📥 下載分析報告", anchor=False)
 
     try:
         gen = ReportGenerator(
