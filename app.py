@@ -263,7 +263,7 @@ with st.sidebar:
 
     col_y, col_s = st.columns(2)
     with col_y:
-        year = st.number_input("年度", min_value=2019, max_value=2026, value=2024)
+        year = st.number_input("年度", min_value=2013, max_value=2026, value=2024)
     with col_s:
         season = st.selectbox("季度", [1, 2, 3, 4], index=3,
                               format_func=lambda x: f"Q{x}" + (" (年報)" if x == 4 else ""))
