@@ -74,12 +74,10 @@ class MOPSFetcher:
         if '查無資料' in content or len(content) < 500:
             return None
 
-        # 進一步檢查：確認頁面包含至少一個報表錨點
-        has_table = any(
-            anchor_id in content
-            for anchor_id in TABLE_ANCHORS.values()
-        )
-        if not has_table:
+        # 進一步檢查：新格式有錨點 ID，舊格式（2013-2018）有「會計項目」表格
+        has_new_format = any(anchor_id in content for anchor_id in TABLE_ANCHORS.values())
+        has_old_format = '會計項目' in content
+        if not has_new_format and not has_old_format:
             return None
 
         return content
@@ -115,6 +113,8 @@ class MOPSFetcher:
         self._season = season
         return self._soup
 
+    # ── 新格式解析（2019+，有錨點 ID）──────────────────────────────
+
     def _parse_table_near_anchor(self, anchor_id: str) -> pd.DataFrame:
         if self._soup is None:
             raise RuntimeError("請先呼叫 fetch_report_page() 取得報表頁面")
@@ -134,11 +134,12 @@ class MOPSFetcher:
             raise ValueError(f"{anchor_id} 表格資料不足")
 
         header_row = rows[1]
-        headers = [cell.get_text(strip=True) for cell in header_row.find_all(['td', 'th'])]
+        # recursive=False：只取直接子節點，避免抓到下層 row 的 cell
+        headers = [cell.get_text(strip=True) for cell in header_row.find_all(['td', 'th'], recursive=False)]
 
         data_rows = []
         for row in rows[2:]:
-            cells = row.find_all(['td', 'th'])
+            cells = row.find_all(['td', 'th'], recursive=False)
             cell_texts = [c.get_text(strip=True) for c in cells]
             if len(cell_texts) >= 2:
                 data_rows.append(cell_texts)
@@ -157,6 +158,115 @@ class MOPSFetcher:
             normalized_rows.append(r[:max_cols])
 
         df = pd.DataFrame(normalized_rows, columns=headers[:max_cols])
+        df = self._clean_dataframe(df)
+        return df
+
+    # ── 舊格式解析（2013–2018，無錨點，<tr> 未關閉）──────────────
+
+    def _is_old_format(self) -> bool:
+        """2013–2018 的舊版 XBRL 頁面沒有錨點 ID"""
+        if self._soup is None:
+            return False
+        return (
+            self._soup.find('div', id='BalanceSheet') is None and
+            self._soup.find('a', attrs={'name': 'BalanceSheet'}) is None
+        )
+
+    def _find_old_format_table(self, statement_type: str):
+        """
+        舊格式：從所有 table 中找出對應報表的 table element。
+        判斷邏輯：
+          - 資產負債表：第一欄為「會計項目」，其他欄為日期點（年月日）
+          - 損益表  ：第一欄為「會計項目」，其他欄為日期段（含「年度」或「至」）
+                     且第一筆資料列包含「收入」或「銷貨」
+          - 現金流量表：同上，但第一筆資料列包含「現金」或「活動」
+        """
+        tables = self._soup.find_all('table')
+        candidates = {'balance_sheet': [], 'income_statement': [], 'cash_flow': []}
+
+        for table in tables:
+            rows = table.find_all('tr')
+            if not rows:
+                continue
+            header_cells = rows[0].find_all(['td', 'th'], recursive=False)
+            headers = [c.get_text(strip=True) for c in header_cells]
+            if not headers or '會計項目' not in headers[0]:
+                continue
+
+            # 判斷欄位是日期點（YYYY年MM月DD日）還是日期段（年度 / 至）
+            is_date_range = any(
+                '年度' in h or '至' in h
+                for h in headers[1:]
+            )
+
+            if not is_date_range:
+                candidates['balance_sheet'].append(table)
+            else:
+                # 看前幾列資料判斷是損益還是現金流
+                data_texts = ''
+                for row in rows[2:8]:
+                    cells = row.find_all(['td', 'th'], recursive=False)
+                    data_texts += ' '.join(c.get_text(strip=True) for c in cells)
+
+                if '現金' in data_texts or '活動' in data_texts:
+                    candidates['cash_flow'].append(table)
+                else:
+                    candidates['income_statement'].append(table)
+
+        # 若同類型有多個 table，取第一個（最完整的）
+        found = candidates.get(statement_type, [])
+        if not found:
+            raise ValueError(f"舊格式頁面找不到「{statement_type}」報表")
+        return found[0]
+
+    def _parse_old_format_table(self, statement_type: str) -> pd.DataFrame:
+        """
+        解析舊格式（2013–2018）財務報表 table。
+        使用 recursive=False 避免 <tr> 未關閉造成的巢狀問題。
+        資產負債表若有 3 個日期欄（IFRS 首次採用），只取前兩欄。
+        """
+        table = self._find_old_format_table(statement_type)
+        rows = table.find_all('tr')
+        if not rows:
+            raise ValueError(f"舊格式 {statement_type} 表格為空")
+
+        # 取標題行（row 0）
+        header_cells = rows[0].find_all(['td', 'th'], recursive=False)
+        headers = [c.get_text(strip=True) for c in header_cells]
+
+        # 如果有 3 個日期欄（2013 年 IFRS 過渡期），只保留前 2 個日期
+        if len(headers) == 4:   # ['會計項目', date1, date2, transition_date]
+            headers = headers[:3]
+            trim_cols = 3
+        else:
+            trim_cols = len(headers)
+
+        data_rows = []
+        for row in rows[1:]:    # 從 row 1 開始（跳過標題）
+            cells = row.find_all(['td', 'th'], recursive=False)
+            if not cells:
+                continue
+            texts = [c.get_text(strip=True) for c in cells[:trim_cols]]
+            # 補足欄位
+            while len(texts) < trim_cols:
+                texts.append('')
+            # 跳過只有標題文字的分段列（如「資產負債表」、「損益表」）
+            if len(texts) == 1:
+                continue
+            if texts[0] and any(texts[1:]):    # 至少要有名稱和一個值
+                data_rows.append(texts)
+            elif texts[0] and all(t == '' for t in texts[1:]):
+                # 父層科目（無數值），也保留（mapper 可能用到名稱）
+                data_rows.append(texts)
+
+        if not data_rows:
+            raise ValueError(f"舊格式 {statement_type} 沒有可解析的資料")
+
+        # 舊格式沒有獨立的 code 欄，加一個空的
+        col_names = ['code'] + headers
+        rows_with_code = [[''] + r for r in data_rows]
+
+        df = pd.DataFrame(rows_with_code, columns=col_names)
         df = self._clean_dataframe(df)
         return df
 
@@ -233,16 +343,24 @@ class MOPSFetcher:
 
         results = {}
         errors = []
+        old_format = self._is_old_format()
 
-        for name, anchor in TABLE_ANCHORS.items():
+        for name in TABLE_ANCHORS:
             try:
-                results[name] = self._parse_table_near_anchor(anchor)
+                if old_format:
+                    results[name] = self._parse_old_format_table(name)
+                else:
+                    results[name] = self._parse_table_near_anchor(TABLE_ANCHORS[name])
             except (ValueError, RuntimeError) as e:
                 errors.append(f"{name}: {e}")
                 results[name] = pd.DataFrame()
 
         if errors:
             results['_warnings'] = errors
+
+        # 標示舊格式（供前端顯示提示）
+        if old_format:
+            results['_old_format'] = True
 
         report_label = '合併報表' if self._report_type_used == 'consolidated' else '個別報表'
 
