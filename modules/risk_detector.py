@@ -118,15 +118,15 @@ class RiskDetector:
                     except (TypeError, ValueError):
                         pass
 
-            if ratio_data.get('note'):
-                self.alerts.append({
-                    'dimension': dimension,
-                    'ratio': ratio_key,
-                    'ratio_name': ratio_data.get('name', ratio_key),
-                    'level': 'info',
-                    'message': ratio_data['note'],
-                    'value': None,
-                })
+                if ratio_data.get('note'):
+                    self.alerts.append({
+                        'dimension': dimension,
+                        'ratio': ratio_key,
+                        'ratio_name': ratio_data.get('name', ratio_key),
+                        'level': 'info',
+                        'message': ratio_data['note'],
+                        'value': None,
+                    })
 
         return self.alerts
 
@@ -162,6 +162,11 @@ class RiskDetector:
             'total': round(total, 1),
             'dimensions': dimensions,
             'grade': self._grade(total),
+            'method_note': (
+                '本分數為 rule-based financial health scorecard，'
+                '依據獲利能力、償債能力、營運效率與現金流四大構面計算。'
+                '此分數用於初步財務風險提示，不等同於投資建議或信用評等。'
+            ),
         }
 
     @staticmethod
@@ -190,10 +195,10 @@ class RiskDetector:
         roe = self.ratios.get('profitability', {}).get('roe', {}).get('value')
 
         if prof_score >= 80 and eff_score >= 70 and cf_score >= 70:
-            if debt_ratio and debt_ratio > 0.6:
+            if debt_ratio is not None and debt_ratio > 0.6:
                 return {'tag': '高槓桿型', 'emoji': '⚡',
                         'desc': '獲利能力強但高度依賴財務槓桿'}
-            if roe and roe > 0.20:
+            if roe is not None and roe > 0.20:
                 return {'tag': '成長型', 'emoji': '🚀',
                         'desc': '高獲利、高效率，具備成長潛力'}
             return {'tag': '穩健型', 'emoji': '🛡️',
@@ -203,7 +208,7 @@ class RiskDetector:
             return {'tag': '成熟型', 'emoji': '🏦',
                     'desc': '財務穩定，現金流充沛，適合存股'}
 
-        if debt_ratio and debt_ratio > 0.65:
+        if debt_ratio is not None and debt_ratio > 0.65:
             return {'tag': '高槓桿型', 'emoji': '⚡',
                     'desc': '借貸比重偏高，獲利需覆蓋利息支出'}
 
