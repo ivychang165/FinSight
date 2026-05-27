@@ -3,12 +3,12 @@ MOPSFetcher — 從公開資訊觀測站 XBRL 資訊平台擷取財務報表
 """
 
 import requests
-import warnings
+import urllib3
 import re
 import pandas as pd
 from bs4 import BeautifulSoup
 
-warnings.filterwarnings('ignore')
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 XBRL_BASE_URL = "https://mopsov.twse.com.tw/server-java/t164sb01"
 
