@@ -551,22 +551,22 @@ if st.session_state.get('analysis_done'):
             info_alerts = [a for a in alerts if a['level'] == 'info']
 
             if danger_alerts:
-                st.subheader("🔴 高風險")
+                st.subheader("🔴 高風險", anchor=False)
                 for a in danger_alerts:
                     st.error(f"🔴 **{a['ratio_name']}**：{a['message']}")
 
             if warning_alerts:
-                st.subheader("🟡 注意事項")
+                st.subheader("🟡 注意事項", anchor=False)
                 for a in warning_alerts:
                     st.warning(f"🟡 **{a['ratio_name']}**：{a['message']}")
 
             if positive_alerts:
-                st.subheader("🟢 正面訊號")
+                st.subheader("🟢 正面訊號", anchor=False)
                 for a in positive_alerts:
                     st.success(f"🟢 **{a['ratio_name']}**：{a['message']}")
 
             if info_alerts:
-                st.subheader("ℹ️ 備註資訊")
+                st.subheader("ℹ️ 備註資訊", anchor=False)
                 for a in info_alerts:
                     st.info(f"ℹ️ **{a['ratio_name']}**：{a['message']}")
 
