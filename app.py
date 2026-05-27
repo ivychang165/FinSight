@@ -551,36 +551,31 @@ if st.session_state.get('analysis_done'):
             info_alerts = [a for a in alerts if a['level'] == 'info']
 
             if danger_alerts:
-                st.markdown("#### 🔴 高風險")
+                st.subheader("🔴 高風險")
                 for a in danger_alerts:
-                    st.markdown(
-                        f'<div class="risk-danger">🔴 <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.error(f"🔴 **{a['ratio_name']}**：{a['message']}")
 
             if warning_alerts:
-                st.markdown("#### 🟡 注意事項")
+                st.subheader("🟡 注意事項")
                 for a in warning_alerts:
-                    st.markdown(
-                        f'<div class="risk-warning">🟡 <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.warning(f"🟡 **{a['ratio_name']}**：{a['message']}")
 
             if positive_alerts:
-                st.markdown("#### 🟢 正面訊號")
+                st.subheader("🟢 正面訊號")
                 for a in positive_alerts:
-                    st.markdown(
-                        f'<div class="risk-positive">🟢 <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.success(f"🟢 **{a['ratio_name']}**：{a['message']}")
 
             if info_alerts:
-                st.markdown("#### ℹ️ 備註資訊")
+                st.subheader("ℹ️ 備註資訊")
                 for a in info_alerts:
-                    st.markdown(
-                        f'<div class="risk-info">ℹ️ <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.info(f"ℹ️ **{a['ratio_name']}**：{a['message']}")
+
+            if not danger_alerts and not warning_alerts:
+                st.warning(
+                    "⚠️ 本次分析未偵測到明顯風險訊號，但這**不代表完全沒有風險**。"
+                    "財務數據僅反映過去表現，無法預測未來變化。"
+                    "建議搭配產業趨勢、公司治理等非財務資訊綜合判斷，不應僅憑此結果做出投資決策。"
+                )
 
     # Tab: 原始資料
     with tabs[6]:
