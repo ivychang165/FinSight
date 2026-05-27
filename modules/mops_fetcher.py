@@ -5,8 +5,11 @@ MOPSFetcher — 從公開資訊觀測站 XBRL 資訊平台擷取財務報表
 import requests
 import urllib3
 import re
+import logging
 import pandas as pd
 from bs4 import BeautifulSoup
+
+logger = logging.getLogger(__name__)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -62,8 +65,12 @@ class MOPSFetcher:
         try:
             resp = self.session.get(XBRL_BASE_URL, params=params, verify=False, timeout=30)
             resp.raise_for_status()
-        except requests.RequestException:
+        except requests.RequestException as e:
+            logger.warning("MOPS request failed: %s", e)
             return None
+
+        logger.info("MOPS response: status=%s, content_length=%d, encoding=%s",
+                     resp.status_code, len(resp.content), resp.encoding)
 
         try:
             content = resp.content.decode('big5', errors='replace')
@@ -72,14 +79,20 @@ class MOPSFetcher:
 
         # 檢查是否有實際資料
         if '查無資料' in content or len(content) < 500:
+            logger.warning("MOPS no data: has_查無資料=%s, len=%d",
+                           '查無資料' in content, len(content))
             return None
 
         # 進一步檢查：新格式有錨點 ID，舊格式（2013-2018）有「會計項目」表格
         has_new_format = any(anchor_id in content for anchor_id in TABLE_ANCHORS.values())
         has_old_format = '會計項目' in content
         if not has_new_format and not has_old_format:
+            logger.warning("MOPS format not recognized: new=%s, old=%s, len=%d, first_500=%s",
+                           has_new_format, has_old_format, len(content), repr(content[:500]))
             return None
 
+        logger.info("MOPS page OK: new_format=%s, old_format=%s, len=%d",
+                     has_new_format, has_old_format, len(content))
         return content
 
     def fetch_report_page(self, company_id: str, year: int, season: int,

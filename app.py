@@ -5,8 +5,11 @@ FinSight — 智慧化財務報表翻譯與分析平台
 """
 
 import re
+import logging
 import streamlit as st
 import pandas as pd
+
+logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
 
 from modules.mops_fetcher import MOPSFetcher
 from modules.financial_mapper import FinancialMapper
