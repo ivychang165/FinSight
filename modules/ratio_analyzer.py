@@ -3,6 +3,9 @@ RatioAnalyzer — 財務比率分析引擎
 
 四大面向：獲利能力、償債能力、營運效率、現金流
 加上杜邦分析。
+
+注意：本系統以年度（Q4）資料為最佳分析基準。
+若使用季度資料，部分週轉率與報酬率為累計數，可能需年化後解讀。
 """
 
 from modules.financial_report import FinancialReport
@@ -26,6 +29,7 @@ class RatioAnalyzer:
 
     def analyze_all(self) -> dict:
         self._ratios = {}
+        self._confidence_notes = []       # 每次重算時清空，避免累積
         self._ratios['profitability'] = self._profitability()
         self._ratios['solvency'] = self._solvency()
         self._ratios['efficiency'] = self._efficiency()
@@ -37,6 +41,21 @@ class RatioAnalyzer:
         if not self._ratios:
             self.analyze_all()
         return self._ratios
+
+    # ── 輔助：None-safe 檢查 ──
+
+    @staticmethod
+    def _has_values(*values) -> bool:
+        """檢查所有值皆非 None（0 和負數視為有效值）"""
+        return all(v is not None for v in values)
+
+    @staticmethod
+    def _sum_optional(*values) -> float | None:
+        """加總非 None 的值；全部為 None 時回傳 None"""
+        valid = [v for v in values if v is not None]
+        if not valid:
+            return None
+        return sum(valid)
 
     # ── 獲利能力 ──
 
@@ -71,22 +90,26 @@ class RatioAnalyzer:
         return {
             'gross_margin': self._build_ratio(
                 '毛利率', gross_margin,
-                f'{gross_profit:,.0f} ÷ {revenue:,.0f}' if gross_profit and revenue else None,
+                f'{gross_profit:,.0f} ÷ {revenue:,.0f}'
+                if self._has_values(gross_profit, revenue) else None,
                 'percent'
             ),
             'net_margin': self._build_ratio(
                 '淨利率', net_margin,
-                f'{profit_for_ratios:,.0f} ÷ {revenue:,.0f}' if profit_for_ratios and revenue else None,
+                f'{profit_for_ratios:,.0f} ÷ {revenue:,.0f}'
+                if self._has_values(profit_for_ratios, revenue) else None,
                 'percent'
             ),
             'roe': self._build_ratio(
                 'ROE 股東權益報酬率', roe,
-                f'{profit_for_ratios:,.0f} ÷ {avg_equity:,.0f}' if profit_for_ratios and avg_equity else None,
+                f'{profit_for_ratios:,.0f} ÷ {avg_equity:,.0f}'
+                if self._has_values(profit_for_ratios, avg_equity) else None,
                 'percent', confidence=confidence
             ),
             'roa': self._build_ratio(
                 'ROA 資產報酬率', roa,
-                f'{profit_for_ratios:,.0f} ÷ {avg_assets:,.0f}' if profit_for_ratios and avg_assets else None,
+                f'{profit_for_ratios:,.0f} ÷ {avg_assets:,.0f}'
+                if self._has_values(profit_for_ratios, avg_assets) else None,
                 'percent', confidence=confidence
             ),
         }
@@ -109,23 +132,30 @@ class RatioAnalyzer:
         interest_note = None
         if interest_expense is not None and interest_expense != 0:
             interest_coverage = safe_divide(operating_income, abs(interest_expense))
-        elif interest_expense == 0 or interest_expense is None:
-            interest_note = '公司目前幾乎沒有利息負擔'
+        elif interest_expense == 0:
+            interest_note = '公司本期未揭露明顯利息費用，利息負擔可能較低。'
+        else:
+            # interest_expense is None → 資料缺漏
+            interest_note = '缺少利息費用資料，無法計算利息保障倍數。'
 
         return {
             'current_ratio': self._build_ratio(
                 '流動比率', current_ratio,
-                f'{current_assets:,.0f} ÷ {current_liabilities:,.0f}' if current_assets and current_liabilities else None,
+                f'{current_assets:,.0f} ÷ {current_liabilities:,.0f}'
+                if self._has_values(current_assets, current_liabilities) else None,
                 'times'
             ),
             'debt_ratio': self._build_ratio(
                 '負債比率', debt_ratio,
-                f'{total_liabilities:,.0f} ÷ {total_assets:,.0f}' if total_liabilities and total_assets else None,
+                f'{total_liabilities:,.0f} ÷ {total_assets:,.0f}'
+                if self._has_values(total_liabilities, total_assets) else None,
                 'percent'
             ),
             'interest_coverage': self._build_ratio(
                 '利息保障倍數', interest_coverage,
-                f'{operating_income:,.0f} ÷ {abs(interest_expense):,.0f}' if operating_income and interest_expense else None,
+                f'{operating_income:,.0f} ÷ {abs(interest_expense):,.0f}'
+                if self._has_values(operating_income, interest_expense) and interest_expense != 0
+                else None,
                 'times', note=interest_note
             ),
         }
@@ -156,7 +186,7 @@ class RatioAnalyzer:
         payable_days = safe_divide(365, payable_turnover)
 
         cash_cycle = None
-        if inventory_days is not None and receivable_days is not None and payable_days is not None:
+        if self._has_values(inventory_days, receivable_days, payable_days):
             cash_cycle = inventory_days + receivable_days - payable_days
 
         return {
@@ -176,33 +206,33 @@ class RatioAnalyzer:
 
     def _get_avg_receivable(self) -> float | None:
         r = self.report
-        ar_curr = r.get_value('accounts_receivable', 'current') or 0
-        nr_curr = r.get_value('notes_receivable', 'current') or 0
-        ar_prev = r.get_value('accounts_receivable', 'previous') or 0
-        nr_prev = r.get_value('notes_receivable', 'previous') or 0
-
-        curr_total = ar_curr + nr_curr
-        prev_total = ar_prev + nr_prev
-
-        if curr_total == 0:
+        curr_total = self._sum_optional(
+            r.get_value('accounts_receivable', 'current'),
+            r.get_value('notes_receivable', 'current'),
+        )
+        prev_total = self._sum_optional(
+            r.get_value('accounts_receivable', 'previous'),
+            r.get_value('notes_receivable', 'previous'),
+        )
+        if curr_total is None:
             return None
-        if prev_total == 0:
+        if prev_total is None:
             return curr_total
         return (curr_total + prev_total) / 2
 
     def _get_avg_payable(self) -> float | None:
         r = self.report
-        ap_curr = r.get_value('accounts_payable', 'current') or 0
-        np_curr = r.get_value('notes_payable', 'current') or 0
-        ap_prev = r.get_value('accounts_payable', 'previous') or 0
-        np_prev = r.get_value('notes_payable', 'previous') or 0
-
-        curr_total = ap_curr + np_curr
-        prev_total = ap_prev + np_prev
-
-        if curr_total == 0:
+        curr_total = self._sum_optional(
+            r.get_value('accounts_payable', 'current'),
+            r.get_value('notes_payable', 'current'),
+        )
+        prev_total = self._sum_optional(
+            r.get_value('accounts_payable', 'previous'),
+            r.get_value('notes_payable', 'previous'),
+        )
+        if curr_total is None:
             return None
-        if prev_total == 0:
+        if prev_total is None:
             return curr_total
         return (curr_total + prev_total) / 2
 
@@ -215,7 +245,7 @@ class RatioAnalyzer:
         net_income = r.get_value('net_income')
 
         fcf = None
-        if op_cf is not None and capex is not None:
+        if self._has_values(op_cf, capex):
             fcf = op_cf - abs(capex)
 
         earnings_quality = None
@@ -232,12 +262,14 @@ class RatioAnalyzer:
             ),
             'fcf': self._build_ratio(
                 '自由現金流 FCF', fcf,
-                f'{op_cf:,.0f} - {abs(capex):,.0f}' if op_cf is not None and capex is not None else None,
+                f'{op_cf:,.0f} - {abs(capex):,.0f}'
+                if self._has_values(op_cf, capex) else None,
                 'amount'
             ),
             'earnings_quality': self._build_ratio(
                 '盈餘品質比', earnings_quality,
-                f'{op_cf:,.0f} ÷ {net_income:,.0f}' if op_cf is not None and net_income is not None and net_income > 0 else None,
+                f'{op_cf:,.0f} ÷ {net_income:,.0f}'
+                if self._has_values(op_cf, net_income) and net_income > 0 else None,
                 'times', note=eq_note
             ),
         }
@@ -246,7 +278,9 @@ class RatioAnalyzer:
 
     def _dupont(self) -> dict:
         r = self.report
-        net_income = r.get_value('net_income_parent') or r.get_value('net_income')
+        # 嚴謹的 None 判斷：0 也是有效值，不能被 or 跳過
+        net_income_parent = r.get_value('net_income_parent')
+        net_income = net_income_parent if net_income_parent is not None else r.get_value('net_income')
         revenue = r.get_value('revenue')
         avg_assets = r.get_average('total_assets')
         avg_equity = r.get_average('total_equity')
@@ -256,7 +290,7 @@ class RatioAnalyzer:
         equity_multiplier = safe_divide(avg_assets, avg_equity)
 
         roe_dupont = None
-        if net_margin is not None and asset_turnover is not None and equity_multiplier is not None:
+        if self._has_values(net_margin, asset_turnover, equity_multiplier):
             roe_dupont = net_margin * asset_turnover * equity_multiplier
 
         return {
@@ -266,7 +300,7 @@ class RatioAnalyzer:
             'roe_dupont': self._build_ratio('ROE（杜邦）', roe_dupont, None, 'percent'),
         }
 
-    # ── 輔助 ──
+    # ── 輔助：建立標準比率 dict ──
 
     @staticmethod
     def _build_ratio(name: str, value, formula: str | None,

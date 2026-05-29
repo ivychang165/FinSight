@@ -204,6 +204,11 @@ class RiskDetector:
             'total': round(total, 1),
             'dimensions': dimensions,
             'grade': self._grade(total),
+            'method_note': (
+                '本分數為 rule-based financial health scorecard，'
+                '依據獲利能力、償債能力、營運效率與現金流四大構面計算。'
+                '此分數用於初步財務風險提示，不等同於投資建議或信用評等。'
+            ),
         }
 
     @staticmethod
@@ -235,7 +240,8 @@ class RiskDetector:
             if debt_ratio is not None and debt_ratio > 0.6:
                 return {'tag': '高槓桿型', 'emoji': '⚡',
                 'desc': '公司整體獲利能力與營運效率表現強勁，但成長動能高度依賴財務槓桿支撐，需留意債務結構與利息負擔對未來穩定性的影響。'}
-            if roe and roe > 0.20:
+            
+            if roe is not None and roe > 0.20:
                 return {'tag': '成長型', 'emoji': '🚀',
                 'desc': '公司具備優異的獲利能力與營運效率，股東報酬率表現突出，顯示企業具有持續成長與擴張的潛力。'}
             return {'tag': '穩健型', 'emoji': '🛡️',
@@ -244,8 +250,8 @@ class RiskDetector:
        if solv_score >= 80 and cf_score >= 70:
             return {'tag': '成熟型', 'emoji': '🏦',
             'desc': '公司財務結構穩健，現金流充裕且償債能力良好，營運模式成熟穩定，適合長期持有或保守型投資配置。'}
-
-       if debt_ratio and debt_ratio > 0.65:
+        
+        if debt_ratio is not None and debt_ratio > 0.65:
             return {'tag': '高槓桿型', 'emoji': '⚡',
             'desc': '公司負債比率偏高，營運資金與成長動能在一定程度上依賴外部融資，需持續關注槓桿風險與景氣波動影響。'}
 

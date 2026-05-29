@@ -4,8 +4,12 @@ FinSight — 智慧化財務報表翻譯與分析平台
 新手友善的財報翻譯器 + 財務健康 Dashboard
 """
 
+import re
+import logging
 import streamlit as st
 import pandas as pd
+
+logging.basicConfig(level=logging.INFO, format='%(name)s - %(levelname)s - %(message)s')
 
 from modules.mops_fetcher import MOPSFetcher
 from modules.financial_mapper import FinancialMapper
@@ -16,6 +20,7 @@ from modules.narrative_generator import NarrativeGenerator
 from modules.dashboard_generator import DashboardGenerator
 from modules.report_generator import ReportGenerator
 from modules.glossary import GLOSSARY
+from modules.company_data import search_companies, get_company_name
 
 # ─── Page Config ───
 
@@ -30,6 +35,7 @@ st.set_page_config(
 
 st.markdown("""
 <style>
+    /* ─── Desktop Styles ─── */
     .main-header {
         font-size: 2.2rem;
         font-weight: 700;
@@ -109,8 +115,105 @@ st.markdown("""
         border-radius: 8px 8px 0 0;
         padding: 8px 20px;
     }
+    .company-title {
+        font-size: 1.6rem;
+        font-weight: 700;
+        color: #1a1a2e;
+        margin-bottom: 0.5rem;
+    }
+    .company-subtitle {
+        font-size: 0.9rem;
+        color: #666;
+        margin-bottom: 1rem;
+    }
+
+    /* ─── Mobile Responsive ─── */
+    @media (max-width: 768px) {
+        .main-header {
+            font-size: 1.5rem;
+        }
+        .sub-header {
+            font-size: 0.8rem;
+            margin-bottom: 1rem;
+        }
+        .metric-value {
+            font-size: 1.2rem;
+        }
+        .personality-badge {
+            font-size: 1.3rem;
+            padding: 0.8rem;
+        }
+        .personality-badge span {
+            font-size: 0.7rem !important;
+        }
+        .narrative-card {
+            padding: 0.7rem 0.9rem;
+            font-size: 0.9rem;
+        }
+        .risk-danger, .risk-warning, .risk-positive, .risk-info {
+            padding: 0.6rem 0.8rem;
+            font-size: 0.85rem;
+        }
+        .company-title {
+            font-size: 1.2rem;
+        }
+        .company-subtitle {
+            font-size: 0.8rem;
+        }
+
+        /* 讓欄位在手機上堆疊成單欄 */
+        [data-testid="stHorizontalBlock"] {
+            flex-wrap: wrap !important;
+        }
+        [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
+            width: 100% !important;
+            flex: 0 0 100% !important;
+            min-width: 100% !important;
+        }
+
+        /* Tab 標籤可水平捲動 */
+        .stTabs [data-baseweb="tab-list"] {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            flex-wrap: nowrap !important;
+            gap: 4px;
+            scrollbar-width: none;
+        }
+        .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
+            display: none;
+        }
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.75rem;
+            padding: 6px 12px;
+            white-space: nowrap;
+        }
+
+        /* 縮小 Plotly 圖表高度 */
+        [data-testid="stPlotlyChart"] > div {
+            max-height: 320px;
+        }
+    }
+
+    /* ─── Tablet ─── */
+    @media (min-width: 769px) and (max-width: 1024px) {
+        .main-header {
+            font-size: 1.8rem;
+        }
+        .personality-badge {
+            font-size: 1.4rem;
+        }
+    }
 </style>
 """, unsafe_allow_html=True)
+
+# ─── 快取搜尋（避免每次打字都呼叫 TWSE API）───
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_search(keyword: str) -> list:
+    """搜尋公司：本地資料庫 + TWSE 官方 API，結果快取 5 分鐘"""
+    _fetcher = MOPSFetcher()
+    return _fetcher.search_company(keyword)
+
 
 # ─── Header ───
 
@@ -125,21 +228,45 @@ st.markdown(
 with st.sidebar:
     st.markdown("### 📋 查詢設定")
 
-    company_id = st.text_input(
-        "公司代號",
+    search_query = st.text_input(
+        "搜尋公司（代號或名稱）",
         value="2330",
-        help="輸入台灣上市櫃公司股票代號，例如 2330（台積電）、2317（鴻海）",
+        placeholder="例如：2330 或 台積電",
+        help="輸入股票代號或公司名稱的部分文字即可搜尋，例如「台積」、「鴻海」、「2330」",
     )
 
-    fetcher = MOPSFetcher()
-    if company_id:
-        results = fetcher.search_company(company_id)
-        if results:
-            st.caption(f"🔍 {results[0]['code']} {results[0]['name']}")
+    # 搜尋與選擇公司
+    company_id = search_query.strip()
+    company_name = ""
+
+    if search_query.strip():
+        matches = cached_search(search_query.strip())
+
+        if len(matches) == 1:
+            company_id = matches[0]['code']
+            company_name = matches[0]['name']
+            st.caption(f"✅ {company_id} {company_name}")
+        elif len(matches) > 1:
+            # 用 dict 避免字串分割的脆弱性
+            option_map = {f"{m['code']}　{m['name']}": m for m in matches}
+            selected = st.selectbox(
+                "搜尋結果（點選切換）",
+                list(option_map.keys()),
+            )
+            company_id = option_map[selected]['code']
+            company_name = option_map[selected]['name']
+        else:
+            # TWSE API 也找不到 → 直接當作代號輸入
+            if re.fullmatch(r'\d{4,6}', search_query.strip()):
+                company_id = search_query.strip()
+                company_name = ""
+                st.caption(f"🔍 將直接搜尋代號 {company_id}")
+            else:
+                st.warning("找不到符合的公司，請嘗試輸入 4 位數股票代號")
 
     col_y, col_s = st.columns(2)
     with col_y:
-        year = st.number_input("年度", min_value=2019, max_value=2026, value=2024)
+        year = st.number_input("年度", min_value=2013, max_value=2026, value=2024)
     with col_s:
         season = st.selectbox("季度", [1, 2, 3, 4], index=3,
                               format_func=lambda x: f"Q{x}" + (" (年報)" if x == 4 else ""))
@@ -175,9 +302,30 @@ if analyze_btn:
         try:
             fetcher = MOPSFetcher()
             statements = fetcher.fetch_all_statements(company_id, year, season)
-        except (ConnectionError, ValueError) as e:
-            st.error(f"❌ 擷取失敗：{e}")
+        except ConnectionError as e:
+            st.error(f"🌐 網路連線失敗：{e}")
+            st.info("請檢查網路連線後重試，或稍後再試。")
             st.stop()
+        except ValueError as e:
+            st.error(f"📭 查無資料")
+            st.markdown(str(e))
+            st.info(
+                "💡 **小提示**：部分公司（如金控子公司、興櫃公司、KY 公司等）"
+                "可能未在 XBRL 平台提供報表。\n\n"
+                "您可以嘗試搜尋其他公司代號，例如：2330（台積電）、2317（鴻海）、2454（聯發科）。"
+            )
+            st.stop()
+        except Exception as e:
+            st.error(f"❌ 發生未預期的錯誤：{e}")
+            st.stop()
+
+    # 如果使用了個別報表（fallback），顯示提醒
+    meta = statements.get('_meta', {})
+    if meta.get('report_type') == 'individual':
+        st.warning(
+            "⚠️ 此公司無合併報表資料，已自動改用**個別報表**進行分析。"
+            "個別報表僅涵蓋母公司，不含子公司資料，分析結果可能與合併報表有差異。"
+        )
 
     progress = st.progress(0, text="解析財務科目...")
 
@@ -230,6 +378,13 @@ if analyze_btn:
     progress.progress(100, text="分析完成！")
     progress.empty()
 
+    # 公司名稱：優先用 API 取得的（已存在 meta），再用側邊欄搜尋結果
+    meta_name = statements.get('_meta', {}).get('company_name', '')
+    if meta_name:
+        company_name = meta_name
+    elif not company_name:
+        company_name = get_company_name(company_id)
+
     # Store in session state
     st.session_state['analysis_done'] = True
     st.session_state['report'] = report
@@ -242,6 +397,7 @@ if analyze_btn:
     st.session_state['balance_check'] = balance_check
     st.session_state['completeness'] = completeness
     st.session_state['company_id'] = company_id
+    st.session_state['company_name'] = company_name
     st.session_state['year'] = year
     st.session_state['season'] = season
     st.session_state['statements'] = statements
@@ -259,6 +415,7 @@ if st.session_state.get('analysis_done'):
     balance_check = st.session_state['balance_check']
     completeness = st.session_state['completeness']
     cid = st.session_state['company_id']
+    cname = st.session_state.get('company_name', '')
     yr = st.session_state['year']
     ssn = st.session_state['season']
 
@@ -274,7 +431,14 @@ if st.session_state.get('analysis_done'):
         st.warning(f"⚠️ 缺少關鍵欄位：{', '.join(completeness['missing_critical'])}")
 
     # ── Top Summary Row ──
-    st.markdown(f"### {cid} — {yr} 年 Q{ssn} 財務分析")
+    statements_meta = st.session_state.get('statements', {}).get('_meta', {})
+    report_label = statements_meta.get('report_label', '合併報表')
+    display_name = f"{cid} {cname}" if cname else cid
+    st.markdown(
+        f'<div class="company-title">{display_name}</div>'
+        f'<div class="company-subtitle">{yr} 年 Q{ssn} 財務分析 ｜ {report_label}</div>',
+        unsafe_allow_html=True,
+    )
 
     top_col1, top_col2, top_col3 = st.columns([1, 1, 1])
 
@@ -387,36 +551,31 @@ if st.session_state.get('analysis_done'):
             info_alerts = [a for a in alerts if a['level'] == 'info']
 
             if danger_alerts:
-                st.markdown("#### 🔴 高風險")
+                st.subheader("🔴 高風險", anchor=False)
                 for a in danger_alerts:
-                    st.markdown(
-                        f'<div class="risk-danger">🔴 <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.error(f"🔴 **{a['ratio_name']}**：{a['message']}")
 
             if warning_alerts:
-                st.markdown("#### 🟡 注意事項")
+                st.subheader("🟡 注意事項", anchor=False)
                 for a in warning_alerts:
-                    st.markdown(
-                        f'<div class="risk-warning">🟡 <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.warning(f"🟡 **{a['ratio_name']}**：{a['message']}")
 
             if positive_alerts:
-                st.markdown("#### 🟢 正面訊號")
+                st.subheader("🟢 正面訊號", anchor=False)
                 for a in positive_alerts:
-                    st.markdown(
-                        f'<div class="risk-positive">🟢 <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.success(f"🟢 **{a['ratio_name']}**：{a['message']}")
 
             if info_alerts:
-                st.markdown("#### ℹ️ 備註資訊")
+                st.subheader("ℹ️ 備註資訊", anchor=False)
                 for a in info_alerts:
-                    st.markdown(
-                        f'<div class="risk-info">ℹ️ <strong>{a["ratio_name"]}</strong>：{a["message"]}</div>',
-                        unsafe_allow_html=True,
-                    )
+                    st.info(f"ℹ️ **{a['ratio_name']}**：{a['message']}")
+
+            if not danger_alerts and not warning_alerts:
+                st.warning(
+                    "⚠️ 本次分析未偵測到明顯風險訊號，但這**不代表完全沒有風險**。"
+                    "財務數據僅反映過去表現，無法預測未來變化。"
+                    "建議搭配產業趨勢、公司治理等非財務資訊綜合判斷，不應僅憑此結果做出投資決策。"
+                )
 
     # Tab: 原始資料
     with tabs[6]:
@@ -445,17 +604,18 @@ if st.session_state.get('analysis_done'):
 
     # ── Report Download ──
     st.markdown("---")
-    st.markdown("### 📥 下載分析報告")
+    st.subheader("📥 下載分析報告", anchor=False)
 
     try:
         gen = ReportGenerator(
             cid, yr, ssn, ratios, health, personality, narratives, alerts
         )
         excel_bytes = gen.generate_excel()
+        file_label = f"{cid}_{cname}" if cname else cid
         st.download_button(
             label="📥 下載 Excel 報告",
             data=excel_bytes,
-            file_name=f"FinSight_{cid}_{yr}Q{ssn}_報告.xlsx",
+            file_name=f"FinSight_{file_label}_{yr}Q{ssn}_報告.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             type="primary",
         )
