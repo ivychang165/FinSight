@@ -309,6 +309,8 @@ if analyze_btn:
         except ValueError as e:
             st.error(f"📭 查無資料")
             st.markdown(str(e))
+            if hasattr(fetcher, '_last_debug') and fetcher._last_debug:
+                st.code(fetcher._last_debug, language="text")
             st.info(
                 "💡 **小提示**：部分公司（如金控子公司、興櫃公司、KY 公司等）"
                 "可能未在 XBRL 平台提供報表。\n\n"
