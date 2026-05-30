@@ -93,10 +93,18 @@ class MOPSFetcher:
 
         for attempt in range(1, max_retries + 1):
             try:
-                resp = self.session.get(
-                    XBRL_BASE_URL, params=params,
-                    verify=False, timeout=45,
-                )
+                # 先用 POST（模擬表單提交），失敗再 fallback GET
+                if attempt <= 2:
+                    resp = self.session.post(
+                        XBRL_BASE_URL, data=params,
+                        verify=False, timeout=45,
+                        headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                    )
+                else:
+                    resp = self.session.get(
+                        XBRL_BASE_URL, params=params,
+                        verify=False, timeout=45,
+                    )
                 resp.raise_for_status()
             except requests.RequestException as e:
                 logger.warning("MOPS request failed [%s] attempt %d/%d: %s",
