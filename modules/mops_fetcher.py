@@ -49,6 +49,24 @@ class MOPSFetcher:
         self._year = None
         self._season = None
         self._report_type_used = None  # 記錄實際使用的報表類型
+        self._session_warmed = False   # 是否已預熱 session
+
+    def _warm_session(self):
+        """先訪問 MOPS 首頁以建立合法 session cookie，
+        避免海外 IP 直接請求報表被擋。"""
+        if self._session_warmed:
+            return
+        try:
+            self.session.get(
+                XBRL_BASE_URL,
+                params={'step': '0'},
+                verify=False, timeout=15,
+            )
+            logger.info("MOPS session warm-up done, cookies: %s",
+                        list(self.session.cookies.keys()))
+        except requests.RequestException as e:
+            logger.warning("MOPS session warm-up failed: %s", e)
+        self._session_warmed = True
 
     @property
     def report_type_used(self):
@@ -63,6 +81,8 @@ class MOPSFetcher:
         內建重試機制：當 MOPS 回傳不完整內容時（常見於海外 IP），
         會自動重試最多 max_retries 次，每次間隔遞增。
         """
+        self._warm_session()
+
         params = {
             'step': '1',
             'CO_ID': str(company_id),
