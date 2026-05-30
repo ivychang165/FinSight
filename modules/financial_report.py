@@ -70,7 +70,7 @@ class FinancialReport:
     def available_keys(self) -> list:
         return list(self._get_flat_values().keys())
 
-    def validate_balance_sheet(self) -> dict:
+    def validate_balance_sheet(self, tolerance_rate: float = 0.01) -> dict:
         total_assets = self.get_value('total_assets')
         total_liabilities = self.get_value('total_liabilities')
         total_equity = self.get_value('total_equity')
@@ -85,7 +85,7 @@ class FinancialReport:
         if total_liabilities is not None and total_equity is not None:
             expected = total_liabilities + total_equity
             diff = abs(total_assets - expected)
-            tolerance = abs(total_assets) * 0.01
+            tolerance = abs(total_assets) * tolerance_rate
 
             result['details'] = {
                 'total_assets': total_assets,
@@ -107,42 +107,26 @@ class FinancialReport:
         return result
 
     def completeness_check(self) -> dict:
-        critical_fields = {
-            'revenue': '營業收入',
-            'net_income': '本期淨利',
-            'total_assets': '資產總計',
-            'total_equity': '權益總計',
-            'total_liabilities': '負債總計',
-            'operating_cashflow': '營業活動現金流量',
-        }
-        important_fields = {
-            'gross_profit': '營業毛利',
-            'operating_income': '營業利益',
-            'current_assets': '流動資產',
-            'current_liabilities': '流動負債',
-            'inventory': '存貨',
-            'accounts_receivable': '應收帳款',
-            'capex': '資本支出',
-        }
+        critical_keys = ['revenue', 'net_income', 'total_assets', 'total_equity', 'total_liabilities', 'operating_cashflow']
+        important_keys = ['gross_profit', 'operating_income', 'current_assets', 'current_liabilities', 'inventory', 'accounts_receivable', 'capex']
 
         flat = self._get_flat_values()
-        missing_critical = []
-        missing_important = []
-        found = []
+        missing_critical, missing_important, found = [], [], []
 
-        for key, label in critical_fields.items():
+        for key in critical_keys:
+            label = self.get_label(key) # 動態獲取中文標籤
             if key in flat:
                 found.append(label)
             else:
                 missing_critical.append(label)
-
-        for key, label in important_fields.items():
+        for key in important_keys:
+            label = self.get_label(key) # 動態獲取中文標籤
             if key in flat:
                 found.append(label)
             else:
                 missing_important.append(label)
 
-        total = len(critical_fields) + len(important_fields)
+        total = len(critical_keys) + len(important_keys)
         score = len(found) / total if total > 0 else 0
 
         return {
