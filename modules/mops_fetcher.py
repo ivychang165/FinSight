@@ -110,6 +110,7 @@ class MOPSFetcher:
             except requests.RequestException as e:
                 logger.warning("MOPS request failed [%s] attempt %d/%d: %s",
                                report_type, attempt, max_retries, e)
+                self._last_debug = f"MOPS 連線失敗 (attempt {attempt}): {e}"
                 if attempt < max_retries:
                     time.sleep(2 * attempt)
                     continue
@@ -126,6 +127,10 @@ class MOPSFetcher:
             # 檢查是否有實際資料
             if '查無資料' in content:
                 logger.info("MOPS no data [%s]: len=%d", report_type, len(content))
+                self._last_debug = (
+                    f"MOPS 回傳「查無資料」(len={len(content)}, "
+                    f"cookies={list(self.session.cookies.keys())})"
+                )
                 return None  # 明確查無資料，不需重試
 
             if len(content) < 500:
