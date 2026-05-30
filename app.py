@@ -327,6 +327,9 @@ if analyze_btn:
             "個別報表僅涵蓋母公司，不含子公司資料，分析結果可能與合併報表有差異。"
         )
 
+    if meta.get('source') == 'FinMind 開放資料':
+        st.info("ℹ️ 資料來源：FinMind 開放資料 API（MOPS 公開資訊觀測站暫時無法存取，已自動切換備用來源）")
+
     progress = st.progress(0, text="解析財務科目...")
 
     # Step 1: Map financial accounts
