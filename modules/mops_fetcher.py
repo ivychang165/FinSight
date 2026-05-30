@@ -2,6 +2,7 @@
 MOPSFetcher — 從公開資訊觀測站 XBRL 資訊平台擷取財務報表
 """
 
+import time
 import requests
 import urllib3
 import re
@@ -34,12 +35,14 @@ class MOPSFetcher:
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': (
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                 'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/120.0.0.0 Safari/537.36'
+                'Chrome/125.0.0.0 Safari/537.36'
             ),
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Referer': 'https://mopsov.twse.com.tw/server-java/t164sb01',
+            'Connection': 'keep-alive',
         })
         self._soup = None
         self._company_id = None
@@ -53,8 +56,13 @@ class MOPSFetcher:
         return self._report_type_used
 
     def _try_fetch_page(self, company_id: str, year: int, season: int,
-                        report_type: str) -> str | None:
-        """嘗試擷取指定類型的報表頁面，回傳 HTML 內容或 None"""
+                        report_type: str,
+                        max_retries: int = 3) -> str | None:
+        """嘗試擷取指定類型的報表頁面，回傳 HTML 內容或 None
+
+        內建重試機制：當 MOPS 回傳不完整內容時（常見於海外 IP），
+        會自動重試最多 max_retries 次，每次間隔遞增。
+        """
         params = {
             'step': '1',
             'CO_ID': str(company_id),
@@ -62,34 +70,57 @@ class MOPSFetcher:
             'SSEASON': str(season),
             'REPORT_ID': REPORT_IDS.get(report_type, 'C'),
         }
-        try:
-            resp = self.session.get(XBRL_BASE_URL, params=params, verify=False, timeout=30)
-            resp.raise_for_status()
-        except requests.RequestException as e:
-            logger.warning("MOPS request failed [%s]: %s", report_type, e)
-            return None
 
-        logger.info("MOPS response [%s]: status=%s, bytes=%d",
-                     report_type, resp.status_code, len(resp.content))
+        for attempt in range(1, max_retries + 1):
+            try:
+                resp = self.session.get(
+                    XBRL_BASE_URL, params=params,
+                    verify=False, timeout=45,
+                )
+                resp.raise_for_status()
+            except requests.RequestException as e:
+                logger.warning("MOPS request failed [%s] attempt %d/%d: %s",
+                               report_type, attempt, max_retries, e)
+                if attempt < max_retries:
+                    time.sleep(2 * attempt)
+                    continue
+                return None
 
-        try:
-            content = resp.content.decode('big5', errors='replace')
-        except (UnicodeDecodeError, LookupError):
-            content = resp.content.decode('utf-8', errors='replace')
+            logger.info("MOPS response [%s] attempt %d: status=%s, bytes=%d",
+                         report_type, attempt, resp.status_code, len(resp.content))
 
-        # 檢查是否有實際資料
-        if '查無資料' in content or len(content) < 500:
-            logger.info("MOPS no data [%s]: len=%d", report_type, len(content))
-            return None
+            try:
+                content = resp.content.decode('big5', errors='replace')
+            except (UnicodeDecodeError, LookupError):
+                content = resp.content.decode('utf-8', errors='replace')
 
-        # 進一步檢查：新格式有錨點 ID，舊格式（2013-2018）有「會計項目」表格
-        has_new_format = any(anchor_id in content for anchor_id in TABLE_ANCHORS.values())
-        has_old_format = '會計項目' in content
-        if not has_new_format and not has_old_format:
-            logger.warning("MOPS format not recognized [%s]: len=%d", report_type, len(content))
-            return None
+            # 檢查是否有實際資料
+            if '查無資料' in content:
+                logger.info("MOPS no data [%s]: len=%d", report_type, len(content))
+                return None  # 明確查無資料，不需重試
 
-        return content
+            if len(content) < 500:
+                # 回傳過短 → 可能是 MOPS 暫時性問題，值得重試
+                logger.warning("MOPS incomplete response [%s] attempt %d/%d: len=%d",
+                               report_type, attempt, max_retries, len(content))
+                if attempt < max_retries:
+                    time.sleep(2 * attempt)
+                    continue
+                return None
+
+            # 進一步檢查：新格式有錨點 ID，舊格式（2013-2018）有「會計項目」表格
+            has_new_format = any(anchor_id in content for anchor_id in TABLE_ANCHORS.values())
+            has_old_format = '會計項目' in content
+            if not has_new_format and not has_old_format:
+                logger.warning("MOPS format not recognized [%s]: len=%d", report_type, len(content))
+                if attempt < max_retries:
+                    time.sleep(2 * attempt)
+                    continue
+                return None
+
+            return content
+
+        return None
 
     def fetch_report_page(self, company_id: str, year: int, season: int,
                           report_type: str = 'consolidated') -> BeautifulSoup:
