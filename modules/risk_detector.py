@@ -53,7 +53,7 @@ RISK_RULES = {
         {'condition': lambda v: v is not None and v >= 2.0, 'level': 'positive',
          'message': '流動比率良好（≥ 2.0），公司短期償債能力充裕。'},
         ],
-        
+
         'debt_ratio': [
         {'condition': lambda v: v is not None and v > 0.70, 'level': 'warning',
          'message': '負債比率偏高（> 70%），公司較依賴借款支撐營運，需注意財務槓桿風險。'},
@@ -62,7 +62,7 @@ RISK_RULES = {
         {'condition': lambda v: v is not None and v <= 0.40, 'level': 'positive',
          'message': '負債比率偏低（≤ 40%），財務結構相對穩健，負債壓力較小。'},
         ],
-        
+
         'interest_coverage': [
         {'condition': lambda v: v is not None and v < 2, 'level': 'danger',
          'message': '利息保障倍數偏低（< 2），公司獲利不足以支付利息，償債壓力較高。'},
@@ -85,7 +85,7 @@ RISK_RULES = {
         {'condition': lambda v: v is not None and v >= 1.0, 'level': 'positive',
          'message': '總資產週轉率優異（≥ 1.0），資產運用效率高，營運資源使用效率佳。'},
         ],
-        
+
         'cash_cycle': [
         {'condition': lambda v: v is not None and v > 120, 'level': 'warning',
          'message': '現金循環天數偏高（> 120 天），資金回收速度較慢，短期資金壓力較大。'},
@@ -106,7 +106,7 @@ RISK_RULES = {
         {'condition': lambda v: v is not None and v >= 1e6, 'level': 'positive',
          'message': '營業活動現金流量較高（> 100萬），本業具備良好的現金創造能力。'},
         ],
-        
+
         'fcf': [
         {'condition': lambda v: v is not None and v < 0, 'level': 'warning',
          'message': '自由現金流為負，資本支出超過營業現金流入，公司可能處於擴張或現金壓力狀態。'},
@@ -115,7 +115,7 @@ RISK_RULES = {
         {'condition': lambda v: v is not None and v >= 1e6, 'level': 'positive',
          'message': '自由現金流較高（> 100萬），公司具備良好的現金創造與分配能力。'},
         ],
-        
+
         'earnings_quality': [
         {'condition': lambda v: v is not None and v < 0.8, 'level': 'warning',
          'message': '盈餘品質比偏低（< 0.8），帳面獲利但現金回收能力偏弱，獲利品質較低。'},
@@ -240,24 +240,24 @@ class RiskDetector:
             if debt_ratio is not None and debt_ratio > 0.6:
                 return {'tag': '高槓桿型', 'emoji': '⚡',
                 'desc': '公司整體獲利能力與營運效率表現強勁，但成長動能高度依賴財務槓桿支撐，需留意債務結構與利息負擔對未來穩定性的影響。'}
-            
+
             if roe is not None and roe > 0.20:
                 return {'tag': '成長型', 'emoji': '🚀',
                 'desc': '公司具備優異的獲利能力與營運效率，股東報酬率表現突出，顯示企業具有持續成長與擴張的潛力。'}
             return {'tag': '穩健型', 'emoji': '🛡️',
                 'desc': '公司在獲利能力、營運效率與現金流表現上均衡穩定，整體財務結構健全，具備良好的長期經營基礎。'}
 
-       if solv_score >= 80 and cf_score >= 70:
-            return {'tag': '成熟型', 'emoji': '🏦',
-            'desc': '公司財務結構穩健，現金流充裕且償債能力良好，營運模式成熟穩定，適合長期持有或保守型投資配置。'}
-        
+        if solv_score >= 80 and cf_score >= 70:
+                return {'tag': '成熟型', 'emoji': '🏦',
+                'desc': '公司財務結構穩健，現金流充裕且償債能力良好，營運模式成熟穩定，適合長期持有或保守型投資配置。'}
+
         if debt_ratio is not None and debt_ratio > 0.65:
-            return {'tag': '高槓桿型', 'emoji': '⚡',
-            'desc': '公司負債比率偏高，營運資金與成長動能在一定程度上依賴外部融資，需持續關注槓桿風險與景氣波動影響。'}
+                return {'tag': '高槓桿型', 'emoji': '⚡',
+                'desc': '公司負債比率偏高，營運資金與成長動能在一定程度上依賴外部融資，需持續關注槓桿風險與景氣波動影響。'}
 
-       if prof_score < 50 or cf_score < 50:
-            return {'tag': '體質待改善', 'emoji': '🔧',
-            'desc': '公司在獲利能力或現金流表現上相對偏弱，財務體質仍有改善空間，需持續觀察營運改善情況。'}
+        if prof_score < 50 or cf_score < 50:
+                return {'tag': '體質待改善', 'emoji': '🔧',
+                'desc': '公司在獲利能力或現金流表現上相對偏弱，財務體質仍有改善空間，需持續觀察營運改善情況。'}
 
-       return {'tag': '一般型', 'emoji': '📊',
-        'desc': '公司整體財務表現處於市場平均水準，各項指標無明顯優勢或風險，屬於穩定但成長性有限的類型。'}
+        return {'tag': '一般型', 'emoji': '📊',
+            'desc': '公司整體財務表現處於市場平均水準，各項指標無明顯優勢或風險，屬於穩定但成長性有限的類型。'}

@@ -284,7 +284,7 @@ with st.sidebar:
     if glossary_term:
         entry = GLOSSARY[glossary_term]
         st.markdown(f"**{glossary_term}**")
-        st.info(entry['definition'])
+        st.info(entry['professional_definition'])
         st.caption(f"📐 公式：{entry['formula']}")
         with st.expander("💡 白話比喻"):
             st.write(entry['analogy'])
