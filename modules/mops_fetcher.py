@@ -50,6 +50,7 @@ class MOPSFetcher:
         self._season = None
         self._report_type_used = None  # 記錄實際使用的報表類型
         self._session_warmed = False   # 是否已預熱 session
+        self._last_debug = ''          # 最近一次失敗的診斷資訊
 
     def _warm_session(self):
         """先訪問 MOPS 首頁以建立合法 session cookie，
@@ -129,8 +130,13 @@ class MOPSFetcher:
 
             if len(content) < 500:
                 # 回傳過短 → 可能是 MOPS 暫時性問題，值得重試
-                logger.warning("MOPS incomplete response [%s] attempt %d/%d: len=%d",
-                               report_type, attempt, max_retries, len(content))
+                snippet = content[:200].strip()
+                logger.warning("MOPS incomplete response [%s] attempt %d/%d: len=%d, snippet=%s",
+                               report_type, attempt, max_retries, len(content), snippet)
+                self._last_debug = (
+                    f"MOPS 回傳內容過短 (attempt {attempt}/{max_retries}, "
+                    f"{len(content)} bytes): {snippet}"
+                )
                 if attempt < max_retries:
                     time.sleep(2 * attempt)
                     continue
@@ -166,13 +172,16 @@ class MOPSFetcher:
                 self._report_type_used = fallback_type
             else:
                 # 兩種都沒資料
+                debug_msg = f"\n\n🔍 診斷：{self._last_debug}" if self._last_debug else ""
                 raise ValueError(
                     f"查無 {company_id} 於 {year} 年第 {season} 季的財務報表（合併報表與個別報表皆無資料）。\n\n"
                     f"可能原因：\n"
                     f"① 該公司未在 XBRL 平台申報此期報表\n"
                     f"② 公司代號輸入錯誤\n"
-                    f"③ 該年度/季度尚未公告\n\n"
+                    f"③ 該年度/季度尚未公告\n"
+                    f"④ 公開資訊觀測站暫時無法從本伺服器存取（請稍後再試）\n\n"
                     f"建議：請至公開資訊觀測站(mops.twse.com.tw)確認該公司是否有公告此期報表。"
+                    f"{debug_msg}"
                 )
 
         self._soup = BeautifulSoup(content, 'html.parser')
