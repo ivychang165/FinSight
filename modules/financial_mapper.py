@@ -43,9 +43,9 @@ ACCOUNT_MAP = {
     },
     'interest_expense': {
         'label': '利息費用', 'source': 'income_statement',
-        'keywords': ['利息費用', '財務成本'],
+        'keywords': ['利息費用', '財務成本', '財務成本淨額'],
         'codes': ['7050'],
-        'partial': [],
+        'partial': ['財務成本'],
     },
     'pretax_income': {
         'label': '稅前淨利', 'source': 'income_statement',
@@ -56,16 +56,17 @@ ACCOUNT_MAP = {
     },
     'net_income': {
         'label': '本期淨利', 'source': 'income_statement',
-        'keywords': ['本期淨利（淨損）', '本期淨利', '本期稅後淨利'],
+        'keywords': ['本期淨利（淨損）', '本期淨利', '本期稅後淨利',
+                     '繼續營業單位本期淨利（淨損）'],
         'codes': ['8200'],
         'partial': [],
     },
     'net_income_parent': {
         'label': '淨利歸屬母公司', 'source': 'income_statement',
         'keywords': ['淨利（損）歸屬於母公司業主', '歸屬於母公司業主之淨利',
-                     '淨利歸屬於母公司業主'],
+                     '淨利歸屬於母公司業主', '母公司業主（淨利∕損）'],
         'codes': ['8610'],
-        'partial': ['歸屬於母公司業主'],
+        'partial': ['歸屬於母公司業主', '母公司業主'],
     },
     'eps': {
         'label': '每股盈餘', 'source': 'income_statement',
