@@ -35,143 +35,294 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    /* ─── Desktop Styles ─── */
-    .main-header {
-        font-size: 2.2rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        margin-bottom: 0.2rem;
-    }
-    .sub-header {
-        font-size: 1rem;
-        color: #666;
-        margin-bottom: 2rem;
-    }
-    .metric-card {
-        background: #f8f9fa;
-        border-radius: 12px;
-        padding: 1.2rem;
-        border-left: 4px solid #1a73e8;
-        margin-bottom: 0.8rem;
-    }
-    .metric-title {
-        font-size: 0.85rem;
-        color: #5f6368;
-        margin-bottom: 0.3rem;
-    }
-    .metric-value {
-        font-size: 1.5rem;
-        font-weight: 700;
-        color: #1a1a2e;
-    }
-    .risk-danger {
-        background: #fce4ec;
-        border-left: 4px solid #d93025;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.5rem;
-    }
-    .risk-warning {
-        background: #fff3e0;
-        border-left: 4px solid #f9a825;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.5rem;
-    }
-    .risk-positive {
-        background: #e8f5e9;
-        border-left: 4px solid #0d904f;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.5rem;
-    }
-    .risk-info {
-        background: #e3f2fd;
-        border-left: 4px solid #4285f4;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
-        margin-bottom: 0.5rem;
-    }
-    .narrative-card {
-        background: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
-        margin-bottom: 0.8rem;
-    }
-    .personality-badge {
-        font-size: 1.8rem;
-        text-align: center;
-        padding: 1rem;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 12px;
-        margin-bottom: 1rem;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        border-radius: 8px 8px 0 0;
-        padding: 8px 20px;
-    }
-    .company-title {
-        font-size: 1.6rem;
-        font-weight: 700;
-        color: #1a1a2e;
-        margin-bottom: 0.5rem;
-    }
-    .company-subtitle {
-        font-size: 0.9rem;
-        color: #666;
-        margin-bottom: 1rem;
+    :root {
+        --fs-bg: #0B1120;
+        --fs-bg-2: #111827;
+        --fs-card: #1F2937;
+        --fs-card-2: #162033;
+        --fs-border: #374151;
+        --fs-text: #F9FAFB;
+        --fs-muted: #CBD5E1;
+        --fs-muted-2: #94A3B8;
+        --fs-primary: #3B82F6;
+        --fs-primary-2: #2563EB;
+        --fs-teal: #14B8A6;
+        --fs-positive: #22C55E;
+        --fs-warning: #F59E0B;
+        --fs-danger: #EF4444;
+        --fs-purple: #8B5CF6;
     }
 
-    /* ─── Mobile Responsive ─── */
+    .stApp {
+        background: radial-gradient(circle at top left, #111827 0%, var(--fs-bg) 42%, #020617 100%);
+        color: var(--fs-text);
+    }
+
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1280px;
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #111827 0%, #0B1120 100%);
+        border-right: 1px solid var(--fs-border);
+    }
+
+    [data-testid="stSidebar"] * {
+        color: var(--fs-text);
+    }
+
+    [data-testid="stSidebar"] .stCaptionContainer,
+    [data-testid="stSidebar"] small,
+    [data-testid="stSidebar"] p {
+        color: var(--fs-muted) !important;
+    }
+
+    [data-baseweb="select"] > div,
+    [data-baseweb="input"] > div,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stTextInput"] input {
+        background-color: #020617 !important;
+        color: var(--fs-text) !important;
+        border-color: var(--fs-border) !important;
+        border-radius: 10px !important;
+    }
+
+    .main-header {
+        font-size: 2.35rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+        color: var(--fs-text);
+        margin-bottom: 0.15rem;
+    }
+
+    .sub-header {
+        font-size: 1.02rem;
+        color: var(--fs-muted);
+        margin-bottom: 1.6rem;
+    }
+
+    .company-title {
+        font-size: 1.75rem;
+        font-weight: 800;
+        color: var(--fs-text);
+        letter-spacing: -0.02em;
+        margin-top: 0.6rem;
+        margin-bottom: 0.2rem;
+    }
+
+    .company-subtitle {
+        font-size: 0.95rem;
+        color: var(--fs-muted);
+        margin-bottom: 1.1rem;
+    }
+
+    .metric-card,
+    .narrative-card,
+    .feature-card,
+    .quickstart-card {
+        background: linear-gradient(180deg, rgba(31, 41, 55, 0.96), rgba(22, 32, 51, 0.96));
+        border: 1px solid var(--fs-border);
+        border-radius: 16px;
+        box-shadow: 0 12px 28px rgba(0, 0, 0, 0.22);
+        color: var(--fs-text) !important;
+    }
+
+    .narrative-card {
+        padding: 1rem 1.15rem;
+        margin-bottom: 0.8rem;
+        line-height: 1.65;
+    }
+
+    .narrative-card strong {
+        color: var(--fs-text) !important;
+    }
+
+    .feature-card,
+    .quickstart-card {
+        padding: 1.1rem 1.2rem;
+        min-height: 150px;
+        line-height: 1.6;
+    }
+
+    .feature-card h4,
+    .quickstart-card h4 {
+        color: var(--fs-text);
+        margin-top: 0;
+    }
+
+    .feature-card p,
+    .quickstart-card p,
+    .feature-card li,
+    .quickstart-card li {
+        color: var(--fs-muted);
+    }
+
+    .metric-card {
+        padding: 1.2rem;
+        border-left: 4px solid var(--fs-primary);
+        margin-bottom: 0.85rem;
+    }
+
+    .metric-title {
+        font-size: 0.85rem;
+        color: var(--fs-muted);
+        margin-bottom: 0.3rem;
+    }
+
+    .metric-value {
+        font-size: 1.5rem;
+        font-weight: 800;
+        color: var(--fs-text);
+    }
+
+    .personality-badge {
+        font-size: 1.55rem;
+        text-align: center;
+        padding: 1.05rem 1rem;
+        background: linear-gradient(135deg, #2563EB 0%, #14B8A6 100%);
+        color: white;
+        border-radius: 18px;
+        margin-bottom: 0.85rem;
+        box-shadow: 0 14px 30px rgba(37, 99, 235, 0.25);
+    }
+
+    .personality-badge span {
+        display: inline-block;
+        margin-top: 0.25rem;
+        line-height: 1.45;
+        opacity: 0.96;
+    }
+
+    .risk-danger,
+    .risk-warning,
+    .risk-positive,
+    .risk-info {
+        border-radius: 12px;
+        padding: 0.8rem 1rem;
+        margin-bottom: 0.5rem;
+        color: var(--fs-text);
+    }
+
+    .risk-danger {
+        background: rgba(239, 68, 68, 0.16);
+        border-left: 4px solid var(--fs-danger);
+    }
+
+    .risk-warning {
+        background: rgba(245, 158, 11, 0.16);
+        border-left: 4px solid var(--fs-warning);
+    }
+
+    .risk-positive {
+        background: rgba(34, 197, 94, 0.14);
+        border-left: 4px solid var(--fs-positive);
+    }
+
+    .risk-info {
+        background: rgba(59, 130, 246, 0.14);
+        border-left: 4px solid var(--fs-primary);
+    }
+
+    .stButton > button[kind="primary"],
+    .stDownloadButton > button[kind="primary"] {
+        background: linear-gradient(135deg, var(--fs-primary-2), var(--fs-teal)) !important;
+        border: 0 !important;
+        color: white !important;
+        border-radius: 12px !important;
+        font-weight: 750 !important;
+        box-shadow: 0 10px 24px rgba(37, 99, 235, 0.28);
+    }
+
+    .stButton > button[kind="primary"]:hover,
+    .stDownloadButton > button[kind="primary"]:hover {
+        filter: brightness(1.08);
+        transform: translateY(-1px);
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        border-bottom: 1px solid var(--fs-border);
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 12px 12px 0 0;
+        padding: 9px 18px;
+        font-weight: 650;
+        color: var(--fs-muted);
+    }
+
+    .stTabs [aria-selected="true"] {
+        color: var(--fs-primary) !important;
+        background: rgba(59, 130, 246, 0.10) !important;
+        border-bottom: 2px solid var(--fs-primary) !important;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 14px;
+        border: 1px solid var(--fs-border);
+    }
+
+    [data-testid="stDataFrame"] {
+        border: 1px solid var(--fs-border);
+        border-radius: 14px;
+        overflow: hidden;
+    }
+
+    hr {
+        border-color: var(--fs-border) !important;
+        opacity: 0.8;
+    }
+
     @media (max-width: 768px) {
+        .block-container {
+            padding-top: 1rem;
+            padding-left: 0.9rem;
+            padding-right: 0.9rem;
+        }
+
         .main-header {
-            font-size: 1.5rem;
+            font-size: 1.55rem;
         }
-        .sub-header {
-            font-size: 0.8rem;
-            margin-bottom: 1rem;
+
+        .sub-header,
+        .company-subtitle {
+            font-size: 0.82rem;
         }
-        .metric-value {
-            font-size: 1.2rem;
+
+        .company-title {
+            font-size: 1.25rem;
         }
+
         .personality-badge {
-            font-size: 1.3rem;
-            padding: 0.8rem;
+            font-size: 1.25rem;
+            padding: 0.85rem;
         }
-        .personality-badge span {
-            font-size: 0.7rem !important;
-        }
+
         .narrative-card {
-            padding: 0.7rem 0.9rem;
+            padding: 0.8rem 0.9rem;
             font-size: 0.9rem;
         }
-        .risk-danger, .risk-warning, .risk-positive, .risk-info {
+
+        .risk-danger,
+        .risk-warning,
+        .risk-positive,
+        .risk-info {
             padding: 0.6rem 0.8rem;
             font-size: 0.85rem;
         }
-        .company-title {
-            font-size: 1.2rem;
-        }
-        .company-subtitle {
-            font-size: 0.8rem;
-        }
 
-        /* 讓欄位在手機上堆疊成單欄 */
         [data-testid="stHorizontalBlock"] {
             flex-wrap: wrap !important;
         }
+
         [data-testid="stHorizontalBlock"] > [data-testid="stColumn"] {
             width: 100% !important;
             flex: 0 0 100% !important;
             min-width: 100% !important;
         }
 
-        /* Tab 標籤可水平捲動 */
         .stTabs [data-baseweb="tab-list"] {
             overflow-x: auto;
             -webkit-overflow-scrolling: touch;
@@ -179,28 +330,25 @@ st.markdown("""
             gap: 4px;
             scrollbar-width: none;
         }
+
         .stTabs [data-baseweb="tab-list"]::-webkit-scrollbar {
             display: none;
         }
-        .stTabs [data-baseweb="tab"] {
-            font-size: 0.75rem;
-            padding: 6px 12px;
-            white-space: nowrap;
-        }
 
-        /* 縮小 Plotly 圖表高度 */
-        [data-testid="stPlotlyChart"] > div {
-            max-height: 320px;
+        .stTabs [data-baseweb="tab"] {
+            font-size: 0.78rem;
+            padding: 7px 12px;
+            white-space: nowrap;
         }
     }
 
-    /* ─── Tablet ─── */
     @media (min-width: 769px) and (max-width: 1024px) {
         .main-header {
-            font-size: 1.8rem;
+            font-size: 1.9rem;
         }
+
         .personality-badge {
-            font-size: 1.4rem;
+            font-size: 1.35rem;
         }
     }
 </style>
@@ -504,13 +652,17 @@ if st.session_state.get('analysis_done'):
 
     # Tab: 營運效率
     with tabs[2]:
-        for item in narratives.get('efficiency', []):
-            st.markdown(
-                f'<div class="narrative-card">'
-                f'<strong>{item["title"]}</strong><br>{item["body"]}'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
+        col_chart, col_text = st.columns([1, 1])
+        with col_chart:
+            st.plotly_chart(dashboard.efficiency_bars(), use_container_width=True)
+        with col_text:
+            for item in narratives.get('efficiency', []):
+                st.markdown(
+                    f'<div class="narrative-card">'
+                    f'<strong>{item["title"]}</strong><br>{item["body"]}'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
     # Tab: 現金流
     with tabs[3]:
@@ -628,28 +780,32 @@ else:
 
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown("""
-        #### 🔍 自動擷取
-        從公開資訊觀測站 XBRL 平台自動擷取財務報表，不需手動上傳 PDF。
-        """)
+        st.markdown(
+            '<div class="feature-card"><h4>🔍 自動擷取</h4>'
+            '<p>從公開資訊觀測站 XBRL 平台自動擷取財務報表，不需手動上傳 PDF。</p></div>',
+            unsafe_allow_html=True,
+        )
     with col2:
-        st.markdown("""
-        #### 🧠 智慧翻譯
-        將複雜的財務數字翻譯成白話文，讓一般人也能看懂財報。
-        """)
+        st.markdown(
+            '<div class="feature-card"><h4>🧠 智慧翻譯</h4>'
+            '<p>將複雜的財務數字翻譯成白話文，讓一般人也能看懂財報。</p></div>',
+            unsafe_allow_html=True,
+        )
     with col3:
-        st.markdown("""
-        #### 📊 視覺化 Dashboard
-        四大面向分析、健康評分、財務人格標籤，一眼掌握公司財務體質。
-        """)
+        st.markdown(
+            '<div class="feature-card"><h4>📊 視覺化 Dashboard</h4>'
+            '<p>四大面向分析、健康評分、財務人格標籤，一眼掌握公司財務體質。</p></div>',
+            unsafe_allow_html=True,
+        )
 
     st.markdown("---")
-    st.markdown("#### 🚀 快速開始")
-    st.markdown("""
-    1. 在左側輸入**公司代號**（例如 2330 台積電）
-    2. 選擇**年度**和**季度**
-    3. 點擊 **「開始分析」**
-    """)
+    st.markdown(
+        '<div class="quickstart-card"><h4>🚀 快速開始</h4>'
+        '<ol><li>在左側輸入 <strong>公司代號</strong>（例如 2330 台積電）</li>'
+        '<li>選擇 <strong>年度</strong> 和 <strong>季度</strong></li>'
+        '<li>點擊 <strong>開始分析</strong></li></ol></div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown("---")
     st.info("💡 **提示**：第四季（Q4）視為年度財報，資料最完整。建議優先選擇 Q4 進行分析。")
