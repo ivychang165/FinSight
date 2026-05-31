@@ -369,11 +369,14 @@ with st.sidebar:
         entry = GLOSSARY[glossary_term]
         st.markdown(f"**{glossary_term}**")
         st.info(entry['professional_definition'])
+        st.caption(entry.get('plain_definition', ''))
         st.caption(f"📐 公式：{entry['formula']}")
         with st.expander("💡 白話比喻"):
             st.write(entry['analogy'])
         with st.expander("📏 健康區間"):
             st.write(entry['healthy_range'])
+        with st.expander("🔎 解讀方式"):
+            st.write(entry.get('interpretation', ''))
 
     st.markdown("---")
     st.caption("資料來源：公開資訊觀測站 MOPS")
