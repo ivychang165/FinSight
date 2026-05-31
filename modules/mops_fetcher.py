@@ -1,11 +1,17 @@
 """
-MOPSFetcher — 從公開資訊觀測站 XBRL 資訊平台擷取財務報表
+MOPSFetcher — 從公開資訊觀測站新版 JSON API 擷取財務報表
+
+新版 MOPS（2025 年改版）使用 REST API 回傳 JSON，
+取代舊版 XBRL HTML 頁面。
+
+若 MOPS API 無法存取（如海外 IP 被阻擋），自動切換至
+FinMind 開放資料 API 作為備用來源。
 """
 
-import requests
-import urllib3
 import re
 import logging
+import requests
+import urllib3
 import pandas as pd
 from bs4 import BeautifulSoup
 from modules.company_data import search_companies
@@ -15,317 +21,401 @@ logger = logging.getLogger(__name__)
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-XBRL_BASE_URL = "https://mopsov.twse.com.tw/server-java/t164sb01"
+# 新版 MOPS API 基底 URL
+API_BASE_URL = "https://mops.twse.com.tw/mops/api/"
 
-REPORT_IDS = {
-    'individual': 'A',
-    'consolidated': 'C',
+# FinMind API
+FINMIND_API_URL = "https://api.finmindtrade.com/api/v4/data"
+
+# 三大報表對應的 MOPS API endpoint
+STATEMENT_ENDPOINTS = {
+    'balance_sheet': 't164sb03',
+    'income_statement': 't164sb04',
+    'cash_flow': 't164sb05',
 }
 
-TABLE_ANCHORS = {
-    'balance_sheet': 'BalanceSheet',
-    'income_statement': 'StatementOfComprehensiveIncome',
-    'cash_flow': 'StatementsOfCashFlows',
+# FinMind 資料集對應
+FINMIND_DATASETS = {
+    'balance_sheet': 'TaiwanStockBalanceSheet',
+    'income_statement': 'TaiwanStockFinancialStatements',
+    'cash_flow': 'TaiwanStockCashFlowsStatement',
 }
+
+# 季末日期
+SEASON_END_DATES = {1: '03-31', 2: '06-30', 3: '09-30', 4: '12-31'}
+
+
+def _roc_to_western(text: str) -> str:
+    """將文字中的民國年轉為西元年（例如 '113年12月31日' → '2024年12月31日'）"""
+    def replace_year(m):
+        roc_year = int(m.group(1))
+        return str(roc_year + 1911)
+    return re.sub(r'(\d{2,3})(?=年)', replace_year, text)
 
 
 class MOPSFetcher:
-    """從 MOPS XBRL 資訊平台擷取合併財務報表"""
+    """從 MOPS 新版 JSON API 擷取合併/個別財務報表，支援 FinMind 備援"""
 
     def __init__(self):
         self.session = requests.Session()
         self.session.headers.update({
             'User-Agent': (
-                'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+                'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
                 'AppleWebKit/537.36 (KHTML, like Gecko) '
-                'Chrome/120.0.0.0 Safari/537.36'
+                'Chrome/125.0.0.0 Safari/537.36'
             ),
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'zh-TW,zh;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Content-Type': 'application/json',
+            'Origin': 'https://mops.twse.com.tw',
+            'Referer': 'https://mops.twse.com.tw/mops/',
+            'Accept': 'application/json',
         })
-        self._soup = None
-        self._company_id = None
-        self._year = None
-        self._season = None
-        self._report_type_used = None  # 記錄實際使用的報表類型
+        self._report_type_used = None
+        self._last_debug = ''
+        self._data_source = 'MOPS API'
 
     @property
     def report_type_used(self):
         """回傳實際成功擷取的報表類型 ('consolidated' 或 'individual')"""
         return self._report_type_used
 
-    def _try_fetch_page(self, company_id: str, year: int, season: int,
-                        report_type: str) -> str | None:
-        """嘗試擷取指定類型的報表頁面，回傳 HTML 內容或 None"""
-        params = {
-            'step': '1',
-            'CO_ID': str(company_id),
-            'SYEAR': str(year),
-            'SSEASON': str(season),
-            'REPORT_ID': REPORT_IDS.get(report_type, 'C'),
+    # ══════════════════════════════════════════════════════════════
+    #  MOPS API（主要來源）
+    # ══════════════════════════════════════════════════════════════
+
+    def _call_mops_api(self, endpoint: str, company_id: str,
+                       year: int, season: int) -> dict | None:
+        """呼叫 MOPS JSON API，回傳 result dict 或 None。"""
+        roc_year = str(year - 1911)
+
+        payload = {
+            'companyId': str(company_id),
+            'dataType': '2',
+            'year': roc_year,
+            'season': str(season),
+            'subsidiaryCompanyId': '',
         }
+
+        url = f"{API_BASE_URL}{endpoint}"
         try:
-            resp = self.session.get(XBRL_BASE_URL, params=params, verify=False, timeout=30)
+            resp = self.session.post(url, json=payload, verify=False, timeout=30)
             resp.raise_for_status()
         except requests.RequestException as e:
-            logger.warning("MOPS request failed [%s]: %s", report_type, e)
+            logger.warning("MOPS API request failed [%s]: %s", endpoint, e)
+            self._last_debug = f"MOPS API 連線失敗 ({endpoint}): {e}"
             return None
-
-        logger.info("MOPS response [%s]: status=%s, bytes=%d",
-                    report_type, resp.status_code, len(resp.content))
 
         try:
-            content = resp.content.decode('big5', errors='replace')
-        except (UnicodeDecodeError, LookupError):
-            content = resp.content.decode('utf-8', errors='replace')
-
-        # 檢查是否有實際資料
-        if '查無資料' in content or len(content) < 500:
-            logger.info("MOPS no data [%s]: len=%d", report_type, len(content))
+            data = resp.json()
+        except ValueError:
+            logger.warning("MOPS API invalid JSON [%s]", endpoint)
+            self._last_debug = f"MOPS API 回傳非 JSON 格式 ({endpoint})"
             return None
 
-        # 進一步檢查：新格式有錨點 ID，舊格式（2013-2018）有「會計項目」表格
-        has_new_format = any(anchor_id in content for anchor_id in TABLE_ANCHORS.values())
-        has_old_format = '會計項目' in content
-        if not has_new_format and not has_old_format:
-            logger.warning("MOPS format not recognized [%s]: len=%d", report_type, len(content))
+        if data.get('code') != 200:
+            msg = data.get('message', '未知錯誤')
+            logger.info("MOPS API error [%s]: %s", endpoint, msg)
+            self._last_debug = f"MOPS API 回傳錯誤 ({endpoint}): {msg}"
             return None
 
-        return content
+        result = data.get('result')
+        if not result or not result.get('reportList'):
+            self._last_debug = f"MOPS API 查無資料 ({endpoint})"
+            return None
 
-    def fetch_report_page(self, company_id: str, year: int, season: int,
-                          report_type: str = 'consolidated') -> BeautifulSoup:
-        # 先嘗試使用者指定的報表類型
-        content = self._try_fetch_page(company_id, year, season, report_type)
-
-        if content is not None:
-            self._report_type_used = report_type
-        else:
-            # 自動嘗試另一種報表類型作為 fallback
-            fallback_type = 'individual' if report_type == 'consolidated' else 'consolidated'
-            content = self._try_fetch_page(company_id, year, season, fallback_type)
-
-            if content is not None:
-                self._report_type_used = fallback_type
-            else:
-                # 兩種都沒資料
-                raise ValueError(
-                    f"查無 {company_id} 於 {year} 年第 {season} 季的財務報表（合併報表與個別報表皆無資料）。\n\n"
-                    f"可能原因：\n"
-                    f"① 該公司未在 XBRL 平台申報此期報表\n"
-                    f"② 公司代號輸入錯誤\n"
-                    f"③ 該年度/季度尚未公告\n\n"
-                    f"建議：請至公開資訊觀測站(mops.twse.com.tw)確認該公司是否有公告此期報表。"
-                )
-
-        self._soup = BeautifulSoup(content, 'html.parser')
-        self._company_id = company_id
-        self._year = year
-        self._season = season
-        return self._soup
-
-    # ── 新格式解析（2019+，有錨點 ID）──────────────────────────────
-
-    def _parse_table_near_anchor(self, anchor_id: str) -> pd.DataFrame:
-        if self._soup is None:
-            raise RuntimeError("請先呼叫 fetch_report_page() 取得報表頁面")
-
-        anchor = self._soup.find('div', id=anchor_id)
-        if anchor is None:
-            anchor = self._soup.find('a', attrs={'name': anchor_id})
-        if anchor is None:
-            raise ValueError(f"找不到報表區段：{anchor_id}")
-
-        table = anchor.find_next('table')
-        if table is None:
-            raise ValueError(f"找不到 {anchor_id} 對應的表格")
-
-        rows = table.find_all('tr')
-        if len(rows) < 3:
-            raise ValueError(f"{anchor_id} 表格資料不足")
-
-        header_row = rows[1]
-        # recursive=False：只取直接子節點，避免抓到下層 row 的 cell
-        headers = [cell.get_text(strip=True) for cell in header_row.find_all(['td', 'th'], recursive=False)]
-
-        data_rows = []
-        for row in rows[2:]:
-            cells = row.find_all(['td', 'th'], recursive=False)
-            cell_texts = [c.get_text(strip=True) for c in cells]
-            if len(cell_texts) >= 2:
-                data_rows.append(cell_texts)
-
-        if not data_rows:
-            raise ValueError(f"{anchor_id} 沒有可解析的資料列")
-
-        max_cols = max(len(r) for r in data_rows)
-        if len(headers) < max_cols:
-            headers = headers + [f'col_{i}' for i in range(len(headers), max_cols)]
-
-        normalized_rows = []
-        for r in data_rows:
-            while len(r) < max_cols:
-                r.append('')
-            normalized_rows.append(r[:max_cols])
-
-        df = pd.DataFrame(normalized_rows, columns=headers[:max_cols])
-        df = self._clean_dataframe(df)
-        return df
-
-    # ── 舊格式解析（2013–2018，無錨點，<tr> 未關閉）──────────────
-
-    def _is_old_format(self) -> bool:
-        """2013–2018 的舊版 XBRL 頁面沒有錨點 ID"""
-        if self._soup is None:
-            return False
-        return (
-            self._soup.find('div', id='BalanceSheet') is None and
-            self._soup.find('a', attrs={'name': 'BalanceSheet'}) is None
-        )
-
-    def _find_old_format_table(self, statement_type: str):
-        """
-        舊格式：從所有 table 中找出對應報表的 table element。
-        判斷邏輯：
-          - 資產負債表：第一欄為「會計項目」，其他欄為日期點（年月日）
-          - 損益表  ：第一欄為「會計項目」，其他欄為日期段（含「年度」或「至」）
-                     且第一筆資料列包含「收入」或「銷貨」
-          - 現金流量表：同上，但第一筆資料列包含「現金」或「活動」
-        """
-        tables = self._soup.find_all('table')
-        candidates = {'balance_sheet': [], 'income_statement': [], 'cash_flow': []}
-
-        for table in tables:
-            rows = table.find_all('tr')
-            if not rows:
-                continue
-            header_cells = rows[0].find_all(['td', 'th'], recursive=False)
-            headers = [c.get_text(strip=True) for c in header_cells]
-            if not headers or '會計項目' not in headers[0]:
-                continue
-
-            # 判斷欄位是日期點（YYYY年MM月DD日）還是日期段（年度 / 至）
-            is_date_range = any(
-                '年度' in h or '至' in h
-                for h in headers[1:]
-            )
-
-            if not is_date_range:
-                candidates['balance_sheet'].append(table)
-            else:
-                # 看前幾列資料判斷是損益還是現金流
-                data_texts = ''
-                for row in rows[2:8]:
-                    cells = row.find_all(['td', 'th'], recursive=False)
-                    data_texts += ' '.join(c.get_text(strip=True) for c in cells)
-
-                if '現金' in data_texts or '活動' in data_texts:
-                    candidates['cash_flow'].append(table)
-                else:
-                    candidates['income_statement'].append(table)
-
-        # 若同類型有多個 table，取第一個（最完整的）
-        found = candidates.get(statement_type, [])
-        if not found:
-            raise ValueError(f"舊格式頁面找不到「{statement_type}」報表")
-        return found[0]
-
-    def _parse_old_format_table(self, statement_type: str) -> pd.DataFrame:
-        """
-        解析舊格式（2013–2018）財務報表 table。
-        使用 recursive=False 避免 <tr> 未關閉造成的巢狀問題。
-        資產負債表若有 3 個日期欄（IFRS 首次採用），只取前兩欄。
-        """
-        table = self._find_old_format_table(statement_type)
-        rows = table.find_all('tr')
-        if not rows:
-            raise ValueError(f"舊格式 {statement_type} 表格為空")
-
-        # 取標題行（row 0）
-        header_cells = rows[0].find_all(['td', 'th'], recursive=False)
-        headers = [c.get_text(strip=True) for c in header_cells]
-
-        # 如果有 3 個日期欄（2013 年 IFRS 過渡期），只保留前 2 個日期
-        if len(headers) == 4:   # ['會計項目', date1, date2, transition_date]
-            headers = headers[:3]
-            trim_cols = 3
-        else:
-            trim_cols = len(headers)
-
-        data_rows = []
-        for row in rows[1:]:    # 從 row 1 開始（跳過標題）
-            cells = row.find_all(['td', 'th'], recursive=False)
-            if not cells:
-                continue
-            texts = [c.get_text(strip=True) for c in cells[:trim_cols]]
-            # 補足欄位
-            while len(texts) < trim_cols:
-                texts.append('')
-            # 跳過只有標題文字的分段列（如「資產負債表」、「損益表」）
-            if len(texts) == 1:
-                continue
-            if texts[0] and any(texts[1:]):    # 至少要有名稱和一個值
-                data_rows.append(texts)
-            elif texts[0] and all(t == '' for t in texts[1:]):
-                # 父層科目（無數值），也保留（mapper 可能用到名稱）
-                data_rows.append(texts)
-
-        if not data_rows:
-            raise ValueError(f"舊格式 {statement_type} 沒有可解析的資料")
-
-        # 舊格式沒有獨立的 code 欄，加一個空的
-        col_names = ['code'] + headers
-        rows_with_code = [[''] + r for r in data_rows]
-
-        df = pd.DataFrame(rows_with_code, columns=col_names)
-        df = self._clean_dataframe(df)
-        return df
-
-    def _clean_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        col_map = {}
-        for col in df.columns:
-            lower = col.lower()
-            if 'code' in lower or '代號' in col or '代碼' in col:
-                col_map[col] = 'code'
-            elif 'accounting' in lower or '會計' in col or '項目' in col:
-                col_map[col] = 'account'
-            else:
-                col_map[col] = col
-
-        df = df.rename(columns=col_map)
-
-        if 'account' in df.columns:
-            df['account_zh'] = df['account'].apply(self._extract_chinese)
-            df['account_en'] = df['account'].apply(self._extract_english)
-
-        value_cols = [c for c in df.columns if c not in ('code', 'account', 'account_zh', 'account_en')]
-        for col in value_cols:
-            df[col] = df[col].apply(self._parse_number)
-
-        if 'code' in df.columns:
-            df['code'] = df['code'].astype(str).str.strip()
-
-        return df
-
-    @staticmethod
-    def _extract_chinese(text: str) -> str:
-        chinese = re.findall(r'[一-鿿　-〿＀-￯（）]+', str(text))
-        result = ''.join(chinese).strip()
-        result = re.sub(r'^[\s　]+', '', result)
         return result
 
-    @staticmethod
-    def _extract_english(text: str) -> str:
-        cleaned = re.sub(r'[一-鿿　-〿＀-￯（）]+', '', str(text))
-        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
-        return cleaned
+    def _mops_result_to_dataframe(self, result: dict,
+                                  statement_type: str) -> pd.DataFrame:
+        """將 MOPS API result 轉換為 FinancialMapper 相容的 DataFrame"""
+        titles = result.get('titles', [])
+        report_list = result.get('reportList', [])
+
+        if not report_list:
+            return pd.DataFrame()
+
+        periods = []
+        for title_obj in titles[1:]:
+            name = title_obj.get('main', '')
+            periods.append(_roc_to_western(name))
+
+        is_cashflow = (statement_type == 'cash_flow')
+
+        rows = []
+        for row_data in report_list:
+            if not row_data or len(row_data) < 2:
+                continue
+
+            account_name = row_data[0].strip()
+            account_clean = account_name.replace('　', '').strip()
+            if not account_clean:
+                continue
+
+            values = {}
+            if is_cashflow:
+                for idx, period in enumerate(periods):
+                    col_idx = 1 + idx
+                    if col_idx < len(row_data):
+                        values[period] = self._parse_number(row_data[col_idx])
+            else:
+                for idx, period in enumerate(periods):
+                    col_idx = 1 + idx * 2
+                    if col_idx < len(row_data):
+                        values[period] = self._parse_number(row_data[col_idx])
+
+            rows.append({
+                'code': '',
+                'account_zh': account_clean,
+                'account_en': '',
+                **values,
+            })
+
+        if not rows:
+            return pd.DataFrame()
+
+        return pd.DataFrame(rows)
+
+    def _try_fetch_mops(self, company_id: str, year: int,
+                        season: int) -> dict | None:
+        """嘗試用 MOPS API 擷取全部報表，成功回傳 results dict，失敗回傳 None"""
+        results = {}
+        api_result_meta = None
+
+        for st_key, endpoint in STATEMENT_ENDPOINTS.items():
+            result = self._call_mops_api(endpoint, company_id, year, season)
+            if result is not None:
+                df = self._mops_result_to_dataframe(result, st_key)
+                results[st_key] = df
+                if api_result_meta is None:
+                    api_result_meta = result
+            else:
+                results[st_key] = pd.DataFrame()
+
+        if api_result_meta is None:
+            return None
+
+        report_type_raw = api_result_meta.get('reportType', '合併')
+        self._report_type_used = 'individual' if '個別' in report_type_raw else 'consolidated'
+        self._data_source = 'MOPS API'
+
+        company_name = api_result_meta.get('companyAbbreviation', '')
+        if not company_name:
+            company_name = self.get_company_name(company_id)
+
+        results['_meta'] = {
+            'company_id': company_id,
+            'company_name': company_name,
+            'year': year,
+            'season': season,
+            'source': 'MOPS API',
+            'report_type': self._report_type_used,
+            'report_label': '合併報表' if self._report_type_used == 'consolidated' else '個別報表',
+        }
+
+        return results
+
+    # ══════════════════════════════════════════════════════════════
+    #  FinMind API（備用來源）
+    # ══════════════════════════════════════════════════════════════
+
+    def _call_finmind_api(self, dataset: str, company_id: str,
+                          start_date: str, end_date: str) -> list | None:
+        """呼叫 FinMind API，回傳 data list 或 None"""
+        try:
+            resp = requests.get(FINMIND_API_URL, params={
+                'dataset': dataset,
+                'data_id': str(company_id),
+                'start_date': start_date,
+                'end_date': end_date,
+            }, timeout=20)
+
+            data = resp.json()
+            if data.get('status') != 200:
+                logger.warning("FinMind API error [%s]: %s",
+                               dataset, data.get('msg'))
+                return None
+
+            records = data.get('data', [])
+            if not records:
+                return None
+
+            return records
+        except Exception as e:
+            logger.warning("FinMind API failed [%s]: %s", dataset, e)
+            return None
+
+    def _finmind_to_dataframe(self, records: list, statement_type: str,
+                              target_date: str, prev_date: str,
+                              year: int, season: int) -> pd.DataFrame:
+        """
+        將 FinMind API 回傳的記錄轉為 FinancialMapper 相容的 DataFrame。
+
+        資產負債表：快照 → 直接取 target_date 的值。
+        現金流量表：FinMind 已是累積值 → 直接取 target_date 的值。
+        損益表：FinMind 是季度值 → 加總從 Q1 到目標季度。
+        FinMind 值以「元」為單位，轉為「千元」以符合 MOPS 格式。
+        """
+        is_income_statement = (statement_type == 'income_statement')
+
+        # 過濾掉百分比欄位
+        records = [r for r in records if not r['type'].endswith('_per')]
+
+        if is_income_statement:
+            # 損益表：FinMind 是季度資料，需要加總
+            current_dates = [
+                f"{year}-{SEASON_END_DATES[s]}"
+                for s in range(1, season + 1)
+            ]
+            prev_dates = [
+                f"{year - 1}-{SEASON_END_DATES[s]}"
+                for s in range(1, season + 1)
+            ]
+
+            current_records = {}
+            for r in records:
+                if r['date'] in current_dates:
+                    name = r['origin_name']
+                    current_records[name] = current_records.get(name, 0) + r['value'] / 1000
+
+            prev_records = {}
+            for r in records:
+                if r['date'] in prev_dates:
+                    name = r['origin_name']
+                    prev_records[name] = prev_records.get(name, 0) + r['value'] / 1000
+        else:
+            # 資產負債表（快照）& 現金流量表（已是累積值）：
+            # 直接取 target_date 和 prev_date
+            current_records = {r['origin_name']: r['value'] / 1000
+                               for r in records if r['date'] == target_date}
+            prev_records = {r['origin_name']: r['value'] / 1000
+                            for r in records if r['date'] == prev_date}
+
+        # 合併所有科目名稱
+        all_accounts = list(dict.fromkeys(
+            list(current_records.keys()) + list(prev_records.keys())
+        ))
+
+        if not all_accounts:
+            return pd.DataFrame()
+
+        # 欄位名稱（西元年格式，讓 _parse_period_label 能提取年份）
+        if statement_type == 'balance_sheet':
+            curr_col = f"{year}年{SEASON_END_DATES[season].replace('-', '月')}日"
+            prev_col = f"{year - 1}年{SEASON_END_DATES[season].replace('-', '月')}日"
+        else:
+            curr_col = f"{year}年度" if season == 4 else f"{year}年Q{season}"
+            prev_col = f"{year - 1}年度" if season == 4 else f"{year - 1}年Q{season}"
+
+        rows = []
+        for acct in all_accounts:
+            rows.append({
+                'code': '',
+                'account_zh': acct,
+                'account_en': '',
+                curr_col: current_records.get(acct),
+                prev_col: prev_records.get(acct),
+            })
+
+        return pd.DataFrame(rows)
+
+    def _try_fetch_finmind(self, company_id: str, year: int,
+                           season: int) -> dict | None:
+        """嘗試用 FinMind API 擷取全部報表"""
+        logger.info("Falling back to FinMind API for %s/%d/Q%d",
+                     company_id, year, season)
+
+        target_date = f"{year}-{SEASON_END_DATES[season]}"
+        prev_date = f"{year - 1}-{SEASON_END_DATES[season]}"
+
+        # 查詢範圍：前一年 Q1 到今年目標季度
+        start_date = f"{year - 1}-01-01"
+        end_date = f"{year}-12-31"
+
+        results = {}
+        any_success = False
+
+        for st_key, dataset in FINMIND_DATASETS.items():
+            records = self._call_finmind_api(
+                dataset, company_id, start_date, end_date
+            )
+            if records:
+                df = self._finmind_to_dataframe(
+                    records, st_key, target_date, prev_date, year, season
+                )
+                results[st_key] = df
+                if not df.empty:
+                    any_success = True
+            else:
+                results[st_key] = pd.DataFrame()
+
+        if not any_success:
+            return None
+
+        self._report_type_used = 'consolidated'
+        self._data_source = 'FinMind'
+
+        company_name = self.get_company_name(company_id)
+
+        results['_meta'] = {
+            'company_id': company_id,
+            'company_name': company_name,
+            'year': year,
+            'season': season,
+            'source': 'FinMind 開放資料',
+            'report_type': 'consolidated',
+            'report_label': '合併報表',
+        }
+
+        return results
+
+    # ══════════════════════════════════════════════════════════════
+    #  主要擷取方法（MOPS → FinMind 備援）
+    # ══════════════════════════════════════════════════════════════
+
+    def fetch_all_statements(self, company_id: str, year: int,
+                             season: int) -> dict:
+        """
+        擷取三大財務報表，回傳 dict 包含 DataFrame。
+        優先使用 MOPS API，若失敗自動切換 FinMind API。
+        """
+        # 嘗試 MOPS API
+        results = self._try_fetch_mops(company_id, year, season)
+        if results is not None:
+            logger.info("MOPS API success for %s/%d/Q%d",
+                         company_id, year, season)
+            return results
+
+        # MOPS 失敗，嘗試 FinMind
+        logger.info("MOPS API failed, trying FinMind for %s/%d/Q%d",
+                     company_id, year, season)
+        results = self._try_fetch_finmind(company_id, year, season)
+        if results is not None:
+            logger.info("FinMind API success for %s/%d/Q%d",
+                         company_id, year, season)
+            return results
+
+        # 全部失敗
+        raise ValueError(
+            f"查無 {company_id} 於 {year} 年第 {season} 季的財務報表。\n\n"
+            f"可能原因：\n"
+            f"① 該公司未在 MOPS 平台申報此期報表\n"
+            f"② 公司代號輸入錯誤\n"
+            f"③ 該年度/季度尚未公告\n\n"
+            f"建議：請至公開資訊觀測站(mops.twse.com.tw)確認該公司是否有公告此期報表。"
+        )
+
+    # ══════════════════════════════════════════════════════════════
+    #  共用工具
+    # ══════════════════════════════════════════════════════════════
 
     @staticmethod
     def _parse_number(value) -> object:
+        """解析數值字串（支援千分位逗號、括號表示負數）"""
         if pd.isna(value):
             return None
         s = str(value).strip()
-        if s == '' or s == '-':
+        if s == '' or s == '-' or s == '0':
+            if s == '0':
+                return 0.0
             return None
 
         is_negative = s.startswith('(') and s.endswith(')')
@@ -340,64 +430,11 @@ class MOPSFetcher:
         except ValueError:
             return None
 
-    def fetch_balance_sheet(self) -> pd.DataFrame:
-        return self._parse_table_near_anchor(TABLE_ANCHORS['balance_sheet'])
-
-    def fetch_income_statement(self) -> pd.DataFrame:
-        return self._parse_table_near_anchor(TABLE_ANCHORS['income_statement'])
-
-    def fetch_cash_flow(self) -> pd.DataFrame:
-        return self._parse_table_near_anchor(TABLE_ANCHORS['cash_flow'])
-
-    def fetch_all_statements(self, company_id: str, year: int, season: int) -> dict:
-        self.fetch_report_page(company_id, year, season)
-
-        results = {}
-        errors = []
-        old_format = self._is_old_format()
-
-        for name in TABLE_ANCHORS:
-            try:
-                if old_format:
-                    results[name] = self._parse_old_format_table(name)
-                else:
-                    results[name] = self._parse_table_near_anchor(TABLE_ANCHORS[name])
-            except (ValueError, RuntimeError) as e:
-                errors.append(f"{name}: {e}")
-                results[name] = pd.DataFrame()
-
-        if errors:
-            results['_warnings'] = errors
-
-        # 標示舊格式（供前端顯示提示）
-        if old_format:
-            results['_old_format'] = True
-
-        report_label = '合併報表' if self._report_type_used == 'consolidated' else '個別報表'
-
-        # 自動取得公司名稱（不阻斷流程）
-        company_name = self.get_company_name(company_id)
-
-        results['_meta'] = {
-            'company_id': company_id,
-            'company_name': company_name,
-            'year': year,
-            'season': season,
-            'source': 'MOPS XBRL',
-            'report_type': self._report_type_used,
-            'report_label': report_label,
-        }
-
-        return results
-
     # ── TWSE 即時搜尋 API ──────────────────────────────────────────
 
     @staticmethod
     def _query_twse_api(keyword: str) -> list:
-        """
-        查詢 TWSE 即時代碼搜尋 API。
-        僅保留 4 位數字的正股代碼（過濾掉權證、ETF 等）。
-        """
+        """查詢 TWSE 即時代碼搜尋 API"""
         try:
             url = "https://www.twse.com.tw/rwd/zh/api/codeQuery"
             resp = requests.get(url, params={"query": keyword}, timeout=5)
@@ -412,8 +449,6 @@ class MOPSFetcher:
                     continue
                 code = parts[0].strip()
                 name = parts[1].strip()
-                # 只保留 4 位數字的正股代碼（權證為 6 位數，ETF代碼另計）
-                # 4 位純數字 = 一般上市櫃公司正股
                 if re.fullmatch(r'\d{4}', code):
                     results.append({'code': code, 'name': name})
             return results
@@ -421,22 +456,17 @@ class MOPSFetcher:
             return []
 
     def search_company(self, keyword: str) -> list:
-        """
-        搜尋公司（支援代號或名稱）。
-        策略：本地資料庫（即時）＋ TWSE 官方 API（完整）合併去重。
-        """
+        """搜尋公司（支援代號或名稱）"""
+        from modules.company_data import search_companies
         keyword = keyword.strip()
         if not keyword:
             return []
 
-        # 先查本地資料庫（快速）
         local = search_companies(keyword)
         local_codes = {m['code'] for m in local}
 
-        # 再查 TWSE API（完整，但需網路）
         api_results = self._query_twse_api(keyword)
 
-        # 合併：本地優先，API 補充
         combined = list(local)
         for item in api_results:
             if item['code'] not in local_codes:
@@ -447,16 +477,12 @@ class MOPSFetcher:
 
     @staticmethod
     def get_company_name(company_id: str) -> str:
-        """
-        根據代號取得公司名稱。
-        先查本地 DB，若找不到則查 TWSE API。
-        """
+        """根據代號取得公司名稱"""
         from modules.company_data import get_company_name
         local_name = get_company_name(company_id)
         if local_name:
             return local_name
 
-        # 查 TWSE API
         try:
             url = "https://www.twse.com.tw/rwd/zh/api/codeQuery"
             resp = requests.get(url, params={"query": company_id}, timeout=5)

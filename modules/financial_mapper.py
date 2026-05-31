@@ -13,13 +13,13 @@ ACCOUNT_MAP = {
     # ===== 損益表 =====
     'revenue': {
         'label': '營業收入', 'source': 'income_statement',
-        'keywords': ['營業收入合計', '營業收入淨額', '收入合計'],
+        'keywords': ['營業收入合計', '營業收入淨額', '收入合計', '營業收入'],
         'codes': ['4000'],
         'partial': [],
     },
     'operating_cost': {
         'label': '營業成本', 'source': 'income_statement',
-        'keywords': ['營業成本合計'],
+        'keywords': ['營業成本合計', '營業成本'],
         'codes': ['5000'],
         'partial': [],
     },
@@ -31,7 +31,7 @@ ACCOUNT_MAP = {
     },
     'operating_expense': {
         'label': '營業費用', 'source': 'income_statement',
-        'keywords': ['營業費用合計'],
+        'keywords': ['營業費用合計', '營業費用'],
         'codes': ['6000'],
         'partial': [],
     },
