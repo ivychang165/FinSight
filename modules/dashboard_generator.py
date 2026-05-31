@@ -273,6 +273,7 @@ class DashboardGenerator:
 
     def dupont_waterfall(self) -> go.Figure:
         d = self.ratios.get('dupont', {})
+
         nm = d.get('net_margin', {}).get('value')
         at = d.get('asset_turnover', {}).get('value')
         em = d.get('equity_multiplier', {}).get('value')
@@ -284,71 +285,175 @@ class DashboardGenerator:
         fig = go.Figure()
 
         def _fmt_plain(v):
-            """格式化數值，不加 x 後綴"""
+            """格式化倍數型數值"""
             return '—' if v is None else f'{v:.2f}'
 
         boxes = [
-            ('淨利率', self._format_percent(nm), COLORS['primary']),
-            ('總資產週轉率', _fmt_plain(at), COLORS['teal']),
-            ('權益乘數', _fmt_plain(em), COLORS['purple']),
-            ('ROE', self._format_percent(roe), COLORS['positive']),
+            {
+                'label': '淨利率',
+                'value': self._format_percent(nm),
+                'color': COLORS['primary'],
+            },
+            {
+                'label': '總資產週轉率',
+                'value': _fmt_plain(at),
+                'color': COLORS['teal'],
+            },
+            {
+                'label': '權益乘數',
+                'value': _fmt_plain(em),
+                'color': COLORS['purple'],
+            },
+            {
+                'label': 'ROE',
+                'value': self._format_percent(roe),
+                'color': COLORS['positive'],
+            },
         ]
-        x_positions = [0.14, 0.38, 0.62, 0.86]
-        signs = ['×', '×', '=']
-        box_half_w = 0.085
-        box_top = 0.78
-        box_bot = 0.35
-        center_y = (box_top + box_bot) / 2        # 框框垂直中心
-        sign_y = center_y                          # 符號置中
 
-        for idx, ((label, value, color), x) in enumerate(zip(boxes, x_positions)):
+        # ===== 版面參數集中管理 =====
+        x_positions = [0.14, 0.38, 0.62, 0.86]
+
+        box_width = 0.17
+        box_height = 0.32
+        box_center_y = 0.56
+
+        box_top = box_center_y + box_height / 2
+        box_bot = box_center_y - box_height / 2
+
+        value_y = box_center_y + 0.055
+        label_y = box_center_y - 0.075
+        sign_y = box_center_y
+
+        signs = ['×', '×', '=']
+
+        # ===== 畫方框與文字 =====
+        for item, x in zip(boxes, x_positions):
+            color = item['color']
+
             fig.add_shape(
-                type='rect', xref='paper', yref='paper',
-                x0=x - box_half_w, x1=x + box_half_w,
-                y0=box_bot, y1=box_top,
+                type='rect',
+                xref='paper',
+                yref='paper',
+                x0=x - box_width / 2,
+                x1=x + box_width / 2,
+                y0=box_bot,
+                y1=box_top,
                 line=dict(color=color, width=2),
                 fillcolor='rgba(248, 249, 250, 0.96)',
                 layer='below',
             )
-            fig.add_annotation(
-                x=x, y=center_y + 0.05, xref='paper', yref='paper',
-                showarrow=False,
-                text=f"<b>{value}</b>",
-                font=dict(size=18, color=color, family=CHART_FONT),
-            )
-            fig.add_annotation(
-                x=x, y=center_y - 0.08, xref='paper', yref='paper',
-                showarrow=False,
-                text=label,
-                font=dict(size=11, color=COLORS['muted'], family=CHART_FONT),
-            )
-            if idx < len(signs):
-                fig.add_annotation(
-                    x=(x + x_positions[idx + 1]) / 2, y=sign_y,
-                    xref='paper', yref='paper', showarrow=False,
-                    text=f"<b>{signs[idx]}</b>",
-                    font=dict(size=22, color=COLORS['text'], family=CHART_FONT),
-                )
 
+            # 數值
+            fig.add_annotation(
+                x=x,
+                y=value_y,
+                xref='paper',
+                yref='paper',
+                text=f"<b>{item['value']}</b>",
+                showarrow=False,
+                font=dict(
+                    size=20,
+                    color=color,
+                    family=CHART_FONT,
+                ),
+                xanchor='center',
+                yanchor='middle',
+                align='center',
+            )
+
+            # 標籤
+            fig.add_annotation(
+                x=x,
+                y=label_y,
+                xref='paper',
+                yref='paper',
+                text=item['label'],
+                showarrow=False,
+                font=dict(
+                    size=12,
+                    color=COLORS['muted'],
+                    family=CHART_FONT,
+                ),
+                xanchor='center',
+                yanchor='middle',
+                align='center',
+            )
+
+        # ===== 畫乘號與等號 =====
+        sign_x_positions = [
+            (x_positions[0] + x_positions[1]) / 2,
+            (x_positions[1] + x_positions[2]) / 2,
+            (x_positions[2] + x_positions[3]) / 2,
+        ]
+
+        for sign, sx in zip(signs, sign_x_positions):
+            fig.add_annotation(
+                x=sx,
+                y=sign_y,
+                xref='paper',
+                yref='paper',
+                text=f"<b>{sign}</b>",
+                showarrow=False,
+                font=dict(
+                    size=24,
+                    color=COLORS['text'],
+                    family=CHART_FONT,
+                ),
+                xanchor='center',
+                yanchor='middle',
+                align='center',
+            )
+
+        # ===== 底部公式說明 =====
         fig.add_annotation(
             text='淨利率 × 總資產週轉率 × 權益乘數 = ROE',
-            xref='paper', yref='paper', x=0.5, y=0.18,
+            xref='paper',
+            yref='paper',
+            x=0.5,
+            y=0.20,
             showarrow=False,
-            font=dict(size=13, color=COLORS['muted'], family=CHART_FONT),
+            font=dict(
+                size=13,
+                color=COLORS['muted'],
+                family=CHART_FONT,
+            ),
+            xanchor='center',
+            yanchor='middle',
+            align='center',
         )
+
         fig.update_layout(
             title=dict(
-                text='杜邦分析：ROE 拆解', x=0.5, xanchor='center',
-                font=dict(size=17, color=COLORS['text']),
+                text='杜邦分析：ROE 拆解',
+                x=0.5,
+                xanchor='center',
+                font=dict(
+                    size=17,
+                    color=COLORS['text'],
+                    family=CHART_FONT,
+                ),
             ),
             height=380,
             margin=dict(t=72, b=50, l=20, r=20),
-            paper_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor='rgba(0,0,0,0)',
             plot_bgcolor=COLORS['card'],
-            font=dict(color=COLORS['text'], family=CHART_FONT),
-            xaxis=dict(visible=False, range=[0, 1]),
-            yaxis=dict(visible=False, range=[0, 1]),
+            font=dict(
+                color=COLORS['text'],
+                family=CHART_FONT,
+            ),
+            xaxis=dict(
+                visible=False,
+                range=[0, 1],
+                fixedrange=True,
+            ),
+            yaxis=dict(
+                visible=False,
+                range=[0, 1],
+                fixedrange=True,
+            ),
         )
+
         return fig
 
     def cashflow_comparison(self) -> go.Figure:
