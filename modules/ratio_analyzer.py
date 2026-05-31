@@ -132,11 +132,6 @@ class RatioAnalyzer:
         interest_note = None
         if interest_expense is not None and interest_expense != 0:
             interest_coverage = safe_divide(operating_income, abs(interest_expense))
-        elif interest_expense == 0:
-            interest_note = '公司本期未揭露明顯利息費用，利息負擔可能較低。'
-        else:
-            # interest_expense is None → 資料缺漏
-            interest_note = '缺少利息費用資料，無法計算利息保障倍數。'
 
         return {
             'current_ratio': self._build_ratio(
