@@ -80,7 +80,7 @@ class DashboardGenerator:
     @staticmethod
     def _apply_layout(fig: go.Figure, title: str, height: int = 380) -> go.Figure:
         fig.update_layout(
-            title=dict(text=title, x=0.5, font=dict(size=17, color=COLORS["text"])),
+            title=dict(text=title, x=0.5, xanchor='center', font=dict(size=17, color=COLORS["text"])),
             height=height,
             margin=dict(t=72, b=76, l=64, r=42),
             paper_bgcolor="rgba(0,0,0,0)",
@@ -199,7 +199,7 @@ class DashboardGenerator:
             showlegend=False,
             height=360,
             margin=dict(t=58, b=36, l=58, r=58),
-            title=dict(text='四大面向評分', x=0.5, font=dict(size=17, color=COLORS['text'])),
+            title=dict(text='四大面向評分', x=0.5, xanchor='center', font=dict(size=17, color=COLORS['text'])),
             paper_bgcolor="rgba(0,0,0,0)",
             font=dict(color=COLORS['text'], family=CHART_FONT),
         )
@@ -452,7 +452,7 @@ class DashboardGenerator:
             font=dict(size=16, color=COLORS['muted'], family=CHART_FONT),
         )
         fig.update_layout(
-            title=dict(text=title, x=0.5, font=dict(color=COLORS['text'], size=17)),
+            title=dict(text=title, x=0.5, xanchor='center', font=dict(color=COLORS['text'], size=17)),
             height=320,
             paper_bgcolor="rgba(0,0,0,0)",
             plot_bgcolor=COLORS['card'],
