@@ -282,10 +282,15 @@ class DashboardGenerator:
             return self._empty_chart('杜邦分析')
 
         fig = go.Figure()
+
+        def _fmt_plain(v):
+            """格式化數值，不加 x 後綴"""
+            return '—' if v is None else f'{v:.2f}'
+
         boxes = [
             ('淨利率', self._format_percent(nm), COLORS['primary']),
-            ('總資產週轉率', self._format_times(at), COLORS['teal']),
-            ('權益乘數', self._format_times(em), COLORS['purple']),
+            ('總資產週轉率', _fmt_plain(at), COLORS['teal']),
+            ('權益乘數', _fmt_plain(em), COLORS['purple']),
             ('ROE', self._format_percent(roe), COLORS['positive']),
         ]
         x_positions = [0.11, 0.37, 0.63, 0.89]
@@ -293,9 +298,8 @@ class DashboardGenerator:
         box_half_w = 0.09
         box_top = 0.78
         box_bot = 0.35
-        val_y = (box_top + box_bot) / 2 + 0.06   # 數值偏上
-        lbl_y = (box_top + box_bot) / 2 - 0.10   # 標籤偏下
-        sign_y = (box_top + box_bot) / 2          # 符號置中
+        center_y = (box_top + box_bot) / 2        # 框框垂直中心
+        sign_y = center_y                          # 符號置中
 
         for idx, ((label, value, color), x) in enumerate(zip(boxes, x_positions)):
             fig.add_shape(
@@ -307,12 +311,14 @@ class DashboardGenerator:
                 layer='below',
             )
             fig.add_annotation(
-                x=x, y=val_y, xref='paper', yref='paper', showarrow=False,
+                x=x, y=center_y + 0.05, xref='paper', yref='paper',
+                showarrow=False,
                 text=f"<b>{value}</b>",
                 font=dict(size=18, color=color, family=CHART_FONT),
             )
             fig.add_annotation(
-                x=x, y=lbl_y, xref='paper', yref='paper', showarrow=False,
+                x=x, y=center_y - 0.08, xref='paper', yref='paper',
+                showarrow=False,
                 text=label,
                 font=dict(size=11, color=COLORS['muted'], family=CHART_FONT),
             )
@@ -325,7 +331,7 @@ class DashboardGenerator:
                 )
 
         fig.add_annotation(
-            text='ROE = 淨利率 × 總資產週轉率 × 權益乘數',
+            text='淨利率 × 總資產週轉率 × 權益乘數 = ROE',
             xref='paper', yref='paper', x=0.5, y=0.18,
             showarrow=False,
             font=dict(size=13, color=COLORS['muted'], family=CHART_FONT),
