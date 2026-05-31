@@ -293,9 +293,9 @@ class DashboardGenerator:
             ('權益乘數', _fmt_plain(em), COLORS['purple']),
             ('ROE', self._format_percent(roe), COLORS['positive']),
         ]
-        x_positions = [0.11, 0.37, 0.63, 0.89]
+        x_positions = [0.14, 0.38, 0.62, 0.86]
         signs = ['×', '×', '=']
-        box_half_w = 0.09
+        box_half_w = 0.085
         box_top = 0.78
         box_bot = 0.35
         center_y = (box_top + box_bot) / 2        # 框框垂直中心
