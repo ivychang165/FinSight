@@ -291,29 +291,34 @@ class DashboardGenerator:
         x_positions = [0.11, 0.37, 0.63, 0.89]
         signs = ['×', '×', '=']
         box_half_w = 0.09
+        box_top = 0.78
+        box_bot = 0.35
+        val_y = (box_top + box_bot) / 2 + 0.06   # 數值偏上
+        lbl_y = (box_top + box_bot) / 2 - 0.10   # 標籤偏下
+        sign_y = (box_top + box_bot) / 2          # 符號置中
 
         for idx, ((label, value, color), x) in enumerate(zip(boxes, x_positions)):
             fig.add_shape(
                 type='rect', xref='paper', yref='paper',
                 x0=x - box_half_w, x1=x + box_half_w,
-                y0=0.32, y1=0.72,
+                y0=box_bot, y1=box_top,
                 line=dict(color=color, width=2),
                 fillcolor='rgba(248, 249, 250, 0.96)',
                 layer='below',
             )
             fig.add_annotation(
-                x=x, y=0.58, xref='paper', yref='paper', showarrow=False,
+                x=x, y=val_y, xref='paper', yref='paper', showarrow=False,
                 text=f"<b>{value}</b>",
                 font=dict(size=18, color=color, family=CHART_FONT),
             )
             fig.add_annotation(
-                x=x, y=0.42, xref='paper', yref='paper', showarrow=False,
+                x=x, y=lbl_y, xref='paper', yref='paper', showarrow=False,
                 text=label,
                 font=dict(size=11, color=COLORS['muted'], family=CHART_FONT),
             )
             if idx < len(signs):
                 fig.add_annotation(
-                    x=(x + x_positions[idx + 1]) / 2, y=0.52,
+                    x=(x + x_positions[idx + 1]) / 2, y=sign_y,
                     xref='paper', yref='paper', showarrow=False,
                     text=f"<b>{signs[idx]}</b>",
                     font=dict(size=22, color=COLORS['text'], family=CHART_FONT),
@@ -321,12 +326,15 @@ class DashboardGenerator:
 
         fig.add_annotation(
             text='ROE = 淨利率 × 總資產週轉率 × 權益乘數',
-            xref='paper', yref='paper', x=0.5, y=0.15,
+            xref='paper', yref='paper', x=0.5, y=0.18,
             showarrow=False,
             font=dict(size=13, color=COLORS['muted'], family=CHART_FONT),
         )
         fig.update_layout(
-            title=dict(text='杜邦分析：ROE 拆解', x=0.5, font=dict(size=17, color=COLORS['text'])),
+            title=dict(
+                text='杜邦分析：ROE 拆解', x=0.5, xanchor='center',
+                font=dict(size=17, color=COLORS['text']),
+            ),
             height=380,
             margin=dict(t=72, b=50, l=20, r=20),
             paper_bgcolor="rgba(0,0,0,0)",
