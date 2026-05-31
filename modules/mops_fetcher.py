@@ -8,6 +8,8 @@ import re
 import logging
 import pandas as pd
 from bs4 import BeautifulSoup
+from modules.company_data import search_companies
+
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,7 @@ class MOPSFetcher:
             return None
 
         logger.info("MOPS response [%s]: status=%s, bytes=%d",
-                     report_type, resp.status_code, len(resp.content))
+                    report_type, resp.status_code, len(resp.content))
 
         try:
             content = resp.content.decode('big5', errors='replace')
@@ -423,7 +425,6 @@ class MOPSFetcher:
         搜尋公司（支援代號或名稱）。
         策略：本地資料庫（即時）＋ TWSE 官方 API（完整）合併去重。
         """
-        from modules.company_data import search_companies
         keyword = keyword.strip()
         if not keyword:
             return []
